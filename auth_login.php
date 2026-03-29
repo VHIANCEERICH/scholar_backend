@@ -1,41 +1,80 @@
 <?php
-// MOPADAUG SA CONNECTION GIKAN SA FLUTTER WEB (CORS FIX)
-header("Access-Control-Allow-Origin: *");
-header("Access-Control-Allow-Methods: POST, GET, OPTIONS");
-header("Access-Control-Allow-Headers: Content-Type, Authorization, X-Requested-With");
+declare(strict_types=1);
 
-// Tubagon ang browser kung mangutana pa lang kini (Preflight)
-if ($_SERVER['REQUEST_METHOD'] == 'OPTIONS') {
-    http_response_code(200);
-    exit;
+require_once __DIR__ . '/backend_common.php';
+
+require_method('POST');
+$data = require_fields(['email', 'password']);
+
+$email = trim((string) $data['email']);
+$password = (string) $data['password'];
+
+$stmt = db_prepare(
+    $conn,
+    'SELECT user_id, username, email, password_hash, password, role, is_active FROM users WHERE email = ? LIMIT 1'
+);
+$stmt->bind_param('s', $email);
+$stmt->execute();
+$user = $stmt->get_result()?->fetch_assoc();
+$stmt->close();
+
+if (!$user) {
+    respond_error('User not found', 404);
 }
 
-header("Content-Type: application/json");
-include 'connection.php'; 
+if (isset($user['is_active']) && (int) $user['is_active'] !== 1) {
+    respond_error('User account is inactive', 403);
+}
 
-// Dawaton ang data bisan unsaon pagpadala sa Flutter (POST o JSON)
-$json = file_get_contents('php://input');
-$data = json_decode($json, true);
+$hashPassword = (string) ($user['password_hash'] ?? '');
+$legacyPassword = (string) ($user['password'] ?? '');
 
-$email = isset($_POST['email']) ? $_POST['email'] : ($data['email'] ?? '');
-$password = isset($_POST['password']) ? $_POST['password'] : ($data['password'] ?? '');
+$isValid = false;
+if ($hashPassword !== '') {
+    $isValid = password_verify($password, $hashPassword);
+}
+if (!$isValid && $legacyPassword !== '') {
+    $isValid = ($password === $legacyPassword)
+        || password_verify($password, $legacyPassword)
+        || md5($password) === $legacyPassword
+        || sha1($password) === $legacyPassword;
+}
 
-if (!empty($email) && !empty($password)) {
-    // Siguruha nga ang table name "users" ug naay columns: email, password, role
-    $stmt = $conn->prepare("SELECT id, email, role FROM users WHERE email = ? AND password = ?");
-    $stmt->bind_param("ss", $email, $password);
-    $stmt->execute();
-    $result = $stmt->get_result();
+if (!$isValid) {
+    respond_error('Invalid password', 401);
+}
 
-    $users = array();
-    while ($row = $result->fetch_assoc()) {
-        $row['usr_fullname'] = explode('@', $row['email'])[0]; 
-        $users[] = $row;
+$extra = [];
+if (($user['role'] ?? '') === 'scholar' && db_table_exists($conn, 'scholars')) {
+    $profileStmt = db_prepare(
+        $conn,
+        'SELECT scholar_id, scholarship_category, academic_type, sport_type, gift_type, first_name, last_name
+         FROM scholars WHERE user_id = ? LIMIT 1'
+    );
+    $profileStmt->bind_param('i', $user['user_id']);
+    $profileStmt->execute();
+    $profile = $profileStmt->get_result()?->fetch_assoc();
+    $profileStmt->close();
+
+    if ($profile) {
+        $extra = [
+            'scholar_id' => (int) ($profile['scholar_id'] ?? 0),
+            'scholarship_category' => $profile['scholarship_category'] ?? '',
+            'academic_type' => $profile['academic_type'] ?? '',
+            'sport_type' => $profile['sport_type'] ?? '',
+            'gift_type' => $profile['gift_type'] ?? '',
+            'name' => trim(implode(' ', array_filter([
+                trim((string) ($profile['first_name'] ?? '')),
+                trim((string) ($profile['last_name'] ?? '')),
+            ]))),
+        ];
     }
-
-    echo json_encode($users);
-} else {
-    // Kung ma-access ang link pero walay email/pass gipasa
-    echo json_encode(["message" => "Please provide credentials"]);
 }
-?>
+
+respond_success(array_merge([
+    'user_id' => (int) $user['user_id'],
+    'username' => $user['username'],
+    'email' => $user['email'],
+    'role' => $user['role'],
+], $extra));
+
