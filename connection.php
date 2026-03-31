@@ -2,12 +2,13 @@
 
 declare(strict_types=1);
 
-$host = '127.0.0.1';              // matches docker-compose MySQL service name
-$username = 'root';           // your MySQL username
-$password = '';  // your MySQL password
-$dbname = 'scholar_sys';      // your database name
+$host = getenv('DB_HOST') ?: '127.0.0.1';
+$port = (int) (getenv('DB_PORT') ?: '3306');
+$username = getenv('DB_USER') ?: 'root';
+$password = getenv('DB_PASSWORD') ?: '';
+$dbname = getenv('DB_NAME') ?: 'scholar_sys';
 
-$conn = new mysqli($host, $username, $password, $dbname);
+$conn = new mysqli($host, $username, $password, $dbname, $port);
 
 if ($conn->connect_error) {
     http_response_code(500);
