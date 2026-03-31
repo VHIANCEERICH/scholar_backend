@@ -12,7 +12,6 @@ RUN apt-get update && apt-get install -y \
 WORKDIR /app
 COPY . /app
 
-ENV PORT=10000
 EXPOSE 10000
 
-CMD ["sh", "-c", "php -S 0.0.0.0:${PORT} -t /app"]
+CMD sh -c "php -S 0.0.0.0:${PORT:-10000} -t /app"
