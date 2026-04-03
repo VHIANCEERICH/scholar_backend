@@ -2,6 +2,9 @@
 
 declare(strict_types=1);
 
+
+mysqli_report(MYSQLI_REPORT_OFF);
+
 $host = getenv('DB_HOST') ?: '127.0.0.1';
 $port = (int) (getenv('DB_PORT') ?: '3306');
 $username = getenv('DB_USER') ?: 'root';
