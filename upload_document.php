@@ -101,7 +101,12 @@ function run_tesseract(string $filename): array
 
     $output = [];
     $status = 1;
-    exec($binaryArg . ' ' . $fileArg . ' stdout 2>&1', $output, $status);
+    $ocrCommand = $binaryArg . ' ' . $fileArg . ' stdout 2>&1';
+    if (!$isWindows) {
+        // Prevent long-running OCR from hanging the upload request.
+        $ocrCommand = 'timeout 45s ' . $ocrCommand;
+    }
+    exec($ocrCommand, $output, $status);
 
     if ($status !== 0) {
         return [false, '', 'OCR failed: ' . trim(implode(' ', $output))];
@@ -419,3 +424,6 @@ respond_success([
     'processing_seconds' => round($processingSeconds, 3),
     'extracted_text' => $preview,
 ], 201);
+
+
+
