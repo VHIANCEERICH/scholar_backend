@@ -96,25 +96,58 @@ function run_tesseract(string $filename): array
         return [false, '', 'Tesseract not found on the server.'];
     }
 
-    $binaryArg = $isWindows ? '"' . str_replace('"', '\"', $binary) . '"' : escapeshellarg($binary);
-    $fileArg = $isWindows ? '"' . str_replace('"', '\"', $filename) . '"' : escapeshellarg($filename);
+    $binaryArg = $isWindows ? '"' . str_replace('"', '\\"', $binary) . '"' : escapeshellarg($binary);
+    $fileArg = $isWindows ? '"' . str_replace('"', '\\"', $filename) . '"' : escapeshellarg($filename);
 
-    $output = [];
-    $status = 1;
-    $ocrCommand = $binaryArg . ' ' . $fileArg . ' stdout 2>&1';
+    // Use a document-like OCR mode by default for grade sheets.
+    $ocrCommand = $binaryArg . ' ' . $fileArg . ' stdout -l eng --psm 6 2>&1';
     if (!$isWindows) {
         // Prevent long-running OCR from hanging the upload request.
         $ocrCommand = 'timeout 45s ' . $ocrCommand;
     }
+
+    $output = [];
+    $status = 1;
     exec($ocrCommand, $output, $status);
 
-    if ($status !== 0) {
-        return [false, '', 'OCR failed: ' . trim(implode(' ', $output))];
+    $rawLines = array_map(static fn($line) => trim((string) $line), $output);
+    $rawText = trim(implode(' ', array_filter($rawLines, static fn($line) => $line !== '')));
+
+    // Tesseract often prints warnings to stderr (merged here). Strip known diagnostics
+    // so they don't erase valid extracted content.
+    $cleanLines = [];
+    foreach ($rawLines as $line) {
+        if ($line === '') {
+            continue;
+        }
+
+        if (preg_match('/^Warning/i', $line)) {
+            continue;
+        }
+        if (preg_match('/^Estimating resolution/i', $line)) {
+            continue;
+        }
+        if (preg_match('/^Detected\s+\d+\s+diacritics/i', $line)) {
+            continue;
+        }
+        if (preg_match('/^Tesseract Open Source OCR Engine/i', $line)) {
+            continue;
+        }
+
+        $cleanLines[] = $line;
     }
 
-    return [true, trim(implode(' ', $output)), ''];
-}
+    $cleanText = trim(implode(' ', $cleanLines));
+    if ($cleanText !== '') {
+        return [true, $cleanText, ''];
+    }
 
+    if ($status !== 0) {
+        return [false, '', 'OCR failed: ' . ($rawText !== '' ? $rawText : 'Unknown OCR error')];
+    }
+
+    return [true, $rawText, ''];
+}
 $userId = (int) ($_POST['user_id'] ?? request_value('user_id', 0));
 $applicationId = (int) ($_POST['application_id'] ?? request_value('application_id', 0));
 $requirementIdRaw = $_POST['requirement_id'] ?? request_value('requirement_id', null);
