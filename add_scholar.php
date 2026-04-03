@@ -1,4 +1,4 @@
-<?php
+﻿<?php
 declare(strict_types=1);
 
 require_once __DIR__ . '/backend_common.php';
@@ -24,7 +24,7 @@ $assignedArea = trim((string) ($data['assigned_area'] ?? ''));
 $academicType = trim((string) ($data['academic_type'] ?? ''));
 $sportType = trim((string) ($data['sport_type'] ?? ''));
 $giftType = trim((string) ($data['gift_type'] ?? ''));
-$scholarshipStatus = trim((string) ($data['scholarship_status'] ?? 'active'));
+$scholarshipStatus = strtolower(trim((string) ($data['scholarship_status'] ?? 'active')));
 $userId = (int) ($data['user_id'] ?? 0);
 $email = trim((string) ($data['email'] ?? ''));
 $username = trim((string) ($data['username'] ?? ''));
@@ -53,7 +53,7 @@ if ($category === 'academic') {
         respond_error('Invalid academic type', 422);
     }
 } else {
-    $academicType = '';
+    $academicType = null;
 }
 
 if ($category === 'varsity') {
@@ -61,7 +61,7 @@ if ($category === 'varsity') {
         respond_error('Invalid sport type', 422);
     }
 } else {
-    $sportType = '';
+    $sportType = null;
 }
 
 if ($category === 'gift_of_education') {
@@ -73,7 +73,7 @@ if ($category === 'gift_of_education') {
         respond_error('Invalid gift type', 422);
     }
 } else {
-    $giftType = '';
+    $giftType = null;
 }
 
 $createdUser = false;
@@ -165,3 +165,4 @@ try {
     $conn->rollback();
     respond_error($e->getMessage(), 500);
 }
+
