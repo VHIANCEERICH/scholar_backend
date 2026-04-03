@@ -64,7 +64,13 @@ function run_tesseract(string $filename): array
             'C:\\Program Files (x86)\\Tesseract-OCR\\tesseract.exe',
             'tesseract',
         ]
-        : ['tesseract'];
+        : [
+            getenv('TESSERACT_PATH') ?: '',
+            '/usr/bin/tesseract',
+            '/usr/local/bin/tesseract',
+            '/opt/homebrew/bin/tesseract',
+            'tesseract',
+        ];
 
     $binary = null;
     foreach ($candidates as $candidate) {

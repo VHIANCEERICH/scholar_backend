@@ -13,7 +13,7 @@ if (ob_get_level() === 0) {
     ob_start();
 }
 
-if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
+if (($_SERVER['REQUEST_METHOD'] ?? '') === 'OPTIONS') {
     http_response_code(204);
     exit;
 }
@@ -51,6 +51,7 @@ register_shutdown_function(function (): void {
         'line' => $error['line'] ?? 0,
     ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
 });
+
 function respond(array $payload, int $statusCode = 200): void
 {
     http_response_code($statusCode);
@@ -182,10 +183,13 @@ function make_public_file_url(string $path): string
     $normalizedPath = ltrim((string) $normalizedPath, '/');
 
     $isHttps = !empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off';
+    $forwardedProto = strtolower((string) ($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? ''));
+    if ($forwardedProto === 'https') {
+        $isHttps = true;
+    }
+
     $scheme = $isHttps ? 'https' : 'http';
     $host = $_SERVER['HTTP_HOST'] ?? 'localhost';
 
-    return $scheme . '://' . $host . '/scholar_php/' . $normalizedPath;
+    return $scheme . '://' . $host . '/serve_file.php?path=' . rawurlencode($normalizedPath);
 }
-
-
