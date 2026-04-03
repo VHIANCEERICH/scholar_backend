@@ -1,4 +1,4 @@
-﻿<?php
+<?php
 declare(strict_types=1);
 
 require_once __DIR__ . '/backend_common.php';
@@ -53,7 +53,7 @@ if ($category === 'academic') {
         respond_error('Invalid academic type', 422);
     }
 } else {
-    $academicType = null;
+    $academicType = '';
 }
 
 if ($category === 'varsity') {
@@ -61,7 +61,7 @@ if ($category === 'varsity') {
         respond_error('Invalid sport type', 422);
     }
 } else {
-    $sportType = null;
+    $sportType = '';
 }
 
 if ($category === 'gift_of_education') {
@@ -73,7 +73,7 @@ if ($category === 'gift_of_education') {
         respond_error('Invalid gift type', 422);
     }
 } else {
-    $giftType = null;
+    $giftType = '';
 }
 
 $createdUser = false;
@@ -129,7 +129,7 @@ try {
     $scholarStmt = db_prepare(
         $conn,
         'INSERT INTO scholars (user_id, first_name, middle_name, last_name, course, year_level, scholarship_category, assigned_area, scholarship_status, academic_type, sport_type, gift_type)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULLIF(?, \'\'), NULLIF(?, \'\'), NULLIF(?, \'\'))'
     );
     $scholarStmt->bind_param(
         'issssissssss',
@@ -165,4 +165,3 @@ try {
     $conn->rollback();
     respond_error($e->getMessage(), 500);
 }
-
