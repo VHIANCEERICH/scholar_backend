@@ -3,6 +3,31 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/backend_common.php';
 
+require_method('GET');
+
+$status = strtolower(trim((string) ($_GET['status'] ?? 'pending')));
+$allowed = ['pending', 'approved', 'rejected', 'all'];
+if (!in_array($status, $allowed, true)) {
+    $status = 'pending';
+}
+
+$limit = isset($_GET['limit']) ? (int) $_GET['limit'] : 200;
+$offset = isset($_GET['offset']) ? (int) $_GET['offset'] : 0;
+$limit = max(1, min(500, $limit));
+$offset = max(0, $offset);
+
+header('Cache-Control: public, max-age=10');
+
+$where = '';
+$params = [];
+$types = '';
+
+if ($status !== 'all') {
+    $where = 'WHERE s.status = ?';
+    $params[] = $status;
+    $types .= 's';
+}
+
 $sql = "
     SELECT
         s.submission_id,
@@ -24,16 +49,23 @@ $sql = "
     LEFT JOIN applications a ON a.application_id = s.application_id
     LEFT JOIN scholars sc ON sc.scholar_id = a.scholar_id
     LEFT JOIN requirements r ON r.requirement_id = s.requirement_id
+    $where
     ORDER BY s.upload_date DESC
+    LIMIT ? OFFSET ?
 ";
 
-$result = $conn->query($sql);
-if (!$result) {
-    respond_error('Failed to retrieve verification history: ' . $conn->error, 500);
-}
+$params[] = $limit;
+$params[] = $offset;
+$types .= 'ii';
+
+$stmt = db_prepare($conn, $sql);
+$stmt->bind_param($types, ...$params);
+$stmt->execute();
+$result = $stmt->get_result();
+$stmt->close();
 
 $items = [];
-while ($row = $result->fetch_assoc()) {
+while ($row = $result?->fetch_assoc()) {
     $documentType = $row['requirement_name'] ?? '';
     if (!$documentType || trim($documentType) === '') {
         $documentType = 'Requirement #' . (int) $row['requirement_id'];
