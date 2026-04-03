@@ -13,10 +13,9 @@ RUN apt-get update && apt-get install -y \
 
 WORKDIR /app
 COPY . /app
-RUN mkdir -p /app/uploads
 
 ENV PORT=10000
 ENV TESSERACT_PATH=/usr/bin/tesseract
 EXPOSE 10000
 
-CMD ["sh", "-c", "php -S 0.0.0.0:${PORT} -t /app router.php"]
+CMD ["sh", "-c", "php -S 0.0.0.0:${PORT} -t /app"]

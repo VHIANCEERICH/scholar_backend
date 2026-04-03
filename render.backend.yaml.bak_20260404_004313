@@ -5,10 +5,6 @@ services:
     rootDir: .
     dockerfilePath: ./Dockerfile
     healthCheckPath: /health.php
-    disk:
-      name: scholar-uploads
-      mountPath: /app/uploads
-      sizeGB: 1
     envVars:
       - key: DB_HOST
         sync: false

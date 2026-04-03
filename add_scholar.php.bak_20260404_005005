@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/backend_common.php';
 
+error_log('add_scholar.php HIT: ' . __FILE__);
+
 require_method('POST');
 $data = require_fields([
     'first_name',
@@ -26,7 +28,7 @@ $rawScholarshipStatus = strtolower(trim((string) ($data['scholarship_status'] ??
 $userId = (int) ($data['user_id'] ?? 0);
 $email = trim((string) ($data['email'] ?? ''));
 $username = trim((string) ($data['username'] ?? ''));
-$plainPassword = (string) ($data['password'] ?? '');
+$plainPassword = (string) ($data['password'] ?? '123456');
 
 $allowedCategories = ['student_assistant', 'academic', 'varsity', 'gift_of_education'];
 $allowedStatuses = ['terminated', 'approved', 'under_verification', 'pending'];
@@ -93,44 +95,42 @@ $conn->begin_transaction();
 
 try {
     if ($userId <= 0) {
-        if ($email === '' || $plainPassword === '') {
-            respond_error('Email and password are required to create a scholar account.', 422);
+        if ($email === '') {
+            $baseLocal = strtolower(preg_replace('/[^a-z0-9]+/i', '', $firstName . '.' . $lastName));
+            $baseLocal = $baseLocal !== '' ? $baseLocal : 'scholar';
+            $email = $baseLocal . '@jmc.edu.ph';
+            $suffix = 1;
+
+            while (true) {
+                $checkStmt = db_prepare($conn, 'SELECT user_id FROM users WHERE email = ? LIMIT 1');
+                $checkStmt->bind_param('s', $email);
+                $checkStmt->execute();
+                $exists = $checkStmt->get_result()?->fetch_assoc();
+                $checkStmt->close();
+
+                if (!$exists) {
+                    break;
+                }
+
+                $email = $baseLocal . $suffix . '@jmc.edu.ph';
+                $suffix++;
+            }
         }
 
         if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
-            respond_error('Invalid email address for scholar account.', 422);
-        }
-
-        if (strlen($plainPassword) < 6) {
-            respond_error('Password must be at least 6 characters.', 422);
-        }
-
-        $checkStmt = db_prepare($conn, 'SELECT user_id FROM users WHERE email = ? LIMIT 1');
-        $checkStmt->bind_param('s', $email);
-        $checkStmt->execute();
-        $exists = $checkStmt->get_result()?->fetch_assoc();
-        $checkStmt->close();
-
-        if ($exists) {
-            respond_error('Email is already in use.', 409);
+            throw new RuntimeException('Invalid email address for scholar account');
         }
 
         if ($username === '') {
-            $username = trim($firstName . ' ' . $lastName);
+            $username = $firstName . ' ' . $lastName;
         }
 
         $passwordHash = password_hash($plainPassword, PASSWORD_DEFAULT);
-        if ($passwordHash === false) {
-            throw new RuntimeException('Failed to hash password');
-        }
-
-        // Store hash in password_hash; keep legacy password column empty.
-        $legacyPassword = '';
         $userStmt = db_prepare(
             $conn,
             "INSERT INTO users (username, email, password_hash, password, role, is_active) VALUES (?, ?, ?, ?, 'scholar', 1)"
         );
-        $userStmt->bind_param('ssss', $username, $email, $passwordHash, $legacyPassword);
+        $userStmt->bind_param('ssss', $username, $email, $passwordHash, $passwordHash);
         if (!$userStmt->execute()) {
             throw new RuntimeException('Failed to create scholar user: ' . $userStmt->error);
         }

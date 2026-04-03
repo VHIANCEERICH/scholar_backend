@@ -191,12 +191,5 @@ function make_public_file_url(string $path): string
     $scheme = $isHttps ? 'https' : 'http';
     $host = $_SERVER['HTTP_HOST'] ?? 'localhost';
 
-    // Support both Render (served from repo root) and XAMPP (/scholar_php) paths.
-    $scriptName = (string) ($_SERVER['SCRIPT_NAME'] ?? '');
-    $basePath = rtrim(str_replace('\\', '/', dirname($scriptName)), '/');
-    if ($basePath === '.' || $basePath === '/') {
-        $basePath = '';
-    }
-
-    return $scheme . '://' . $host . $basePath . '/serve_file.php?path=' . rawurlencode($normalizedPath);
+    return $scheme . '://' . $host . '/serve_file.php?path=' . rawurlencode($normalizedPath);
 }
