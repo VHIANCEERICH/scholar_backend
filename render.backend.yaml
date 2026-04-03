@@ -4,7 +4,7 @@ services:
     runtime: docker
     rootDir: .
     dockerfilePath: ./Dockerfile
-    healthCheckPath: /auth_login.php
+    healthCheckPath: /health.php
     envVars:
       - key: DB_HOST
         sync: false
