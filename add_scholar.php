@@ -24,16 +24,30 @@ $assignedArea = trim((string) ($data['assigned_area'] ?? ''));
 $academicType = trim((string) ($data['academic_type'] ?? ''));
 $sportType = trim((string) ($data['sport_type'] ?? ''));
 $giftType = trim((string) ($data['gift_type'] ?? ''));
-$scholarshipStatus = strtolower(trim((string) ($data['scholarship_status'] ?? 'active')));
+$rawScholarshipStatus = strtolower(trim((string) ($data['scholarship_status'] ?? 'pending')));
 $userId = (int) ($data['user_id'] ?? 0);
 $email = trim((string) ($data['email'] ?? ''));
 $username = trim((string) ($data['username'] ?? ''));
 $plainPassword = (string) ($data['password'] ?? '123456');
 
 $allowedCategories = ['student_assistant', 'academic', 'varsity', 'gift_of_education'];
-$allowedStatuses = ['active', 'probation', 'terminated'];
+$allowedStatuses = ['terminated', 'approved', 'under_verification', 'pending'];
+$statusAliases = [
+    '' => 'pending',
+    'active' => 'approved',
+    'approved' => 'approved',
+    'pending' => 'pending',
+    'under_verification' => 'under_verification',
+    'under verification' => 'under_verification',
+    'for_verification' => 'under_verification',
+    'for verification' => 'under_verification',
+    'probation' => 'under_verification',
+    'terminated' => 'terminated',
+];
 $allowedAcademicTypes = ['A', 'B', 'C'];
 $allowedGiftTypes = ['ip_member', 'pwd'];
+
+$scholarshipStatus = $statusAliases[$rawScholarshipStatus] ?? $rawScholarshipStatus;
 
 if (!in_array($category, $allowedCategories, true)) {
     respond_error('Invalid scholarship category', 422);
@@ -114,7 +128,7 @@ try {
         $passwordHash = password_hash($plainPassword, PASSWORD_DEFAULT);
         $userStmt = db_prepare(
             $conn,
-            'INSERT INTO users (username, email, password_hash, password, role, is_active) VALUES (?, ?, ?, ?, \'scholar\', 1)'
+            "INSERT INTO users (username, email, password_hash, password, role, is_active) VALUES (?, ?, ?, ?, 'scholar', 1)"
         );
         $userStmt->bind_param('ssss', $username, $email, $passwordHash, $passwordHash);
         if (!$userStmt->execute()) {
@@ -128,8 +142,7 @@ try {
 
     $scholarStmt = db_prepare(
         $conn,
-        'INSERT INTO scholars (user_id, first_name, middle_name, last_name, course, year_level, scholarship_category, assigned_area, scholarship_status, academic_type, sport_type, gift_type)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULLIF(?, \'\'), NULLIF(?, \'\'), NULLIF(?, \'\'))'
+        "INSERT INTO scholars (user_id, first_name, middle_name, last_name, course, year_level, scholarship_category, assigned_area, scholarship_status, academic_type, sport_type, gift_type)`n         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULLIF(?, ''), NULLIF(?, ''), NULLIF(?, ''))"
     );
     $scholarStmt->bind_param(
         'issssissssss',
