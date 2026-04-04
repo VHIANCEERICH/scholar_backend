@@ -23,9 +23,13 @@ $params = [];
 $types = '';
 
 if ($status !== 'all') {
-    $where = 'WHERE s.status = ?';
-    $params[] = $status;
-    $types .= 's';
+    if ($status === 'pending') {
+        $where = "WHERE LOWER(TRIM(COALESCE(s.status, ''))) IN ('pending', 'under_verification', 'for_verification')";
+    } else {
+        $where = 'WHERE LOWER(TRIM(COALESCE(s.status, ""))) = ?';
+        $params[] = $status;
+        $types .= 's';
+    }
 }
 
 $sql = "

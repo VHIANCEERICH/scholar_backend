@@ -1,9 +1,15 @@
-﻿<?php
+<?php
 declare(strict_types=1);
 
 require_once __DIR__ . '/backend_common.php';
 
 require_method('GET');
+
+$status = strtolower(trim((string) ($_GET['status'] ?? 'pending')));
+$allowed = ['pending', 'approved', 'rejected', 'all'];
+if (!in_array($status, $allowed, true)) {
+    $status = 'pending';
+}
 
 $limit = isset($_GET['limit']) ? (int) $_GET['limit'] : 200;
 $offset = isset($_GET['offset']) ? (int) $_GET['offset'] : 0;
@@ -12,19 +18,28 @@ $offset = max(0, $offset);
 
 header('Cache-Control: public, max-age=10');
 
+$where = '';
+$params = [];
+$types = '';
+
+if ($status !== 'all') {
+    $where = 'WHERE s.status = ?';
+    $params[] = $status;
+    $types .= 's';
+}
+
 $sql = "
     SELECT
         s.submission_id,
         s.application_id,
         s.requirement_id,
         s.file_path,
-        s.status,
         s.upload_date,
-        s.reviewer_comment,
+        s.status,
         s.remarks,
+        s.reviewer_comment,
         s.computed_average,
         a.scholar_id,
-        a.status AS application_status,
         sc.user_id,
         sc.first_name,
         sc.middle_name,
@@ -34,33 +49,27 @@ $sql = "
     LEFT JOIN applications a ON a.application_id = s.application_id
     LEFT JOIN scholars sc ON sc.scholar_id = a.scholar_id
     LEFT JOIN requirements r ON r.requirement_id = s.requirement_id
-    WHERE LOWER(TRIM(COALESCE(s.status, ''))) IN (
-        'pending',
-        'approved',
-        'rejected',
-        'under_verification',
-        'for_verification'
-    )
-    ORDER BY CASE LOWER(TRIM(COALESCE(s.status, '')))
-        WHEN 'pending' THEN 0
-        WHEN 'under_verification' THEN 1
-        WHEN 'for_verification' THEN 2
-        WHEN 'approved' THEN 3
-        WHEN 'rejected' THEN 4
-        ELSE 5
-    END, s.upload_date DESC
+    $where
+    ORDER BY s.upload_date DESC
     LIMIT ? OFFSET ?
 ";
 
+$params[] = $limit;
+$params[] = $offset;
+$types .= 'ii';
+
 $stmt = db_prepare($conn, $sql);
-$stmt->bind_param('ii', $limit, $offset);
+$stmt->bind_param($types, ...$params);
 $stmt->execute();
-$rows = fetch_all_assoc($stmt);
+$result = $stmt->get_result();
 $stmt->close();
 
 $items = [];
-foreach ($rows as $row) {
-    $documentType = $row['requirement_name'] ?: ('Requirement #' . (int) $row['requirement_id']);
+while ($row = $result?->fetch_assoc()) {
+    $documentType = $row['requirement_name'] ?? '';
+    if (!$documentType || trim($documentType) === '') {
+        $documentType = 'Requirement #' . (int) $row['requirement_id'];
+    }
     $normalizedType = strtolower($documentType);
     $showAverage = str_contains($normalizedType, 'report') && str_contains($normalizedType, 'grade');
 

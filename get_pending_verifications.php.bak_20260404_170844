@@ -1,4 +1,4 @@
-﻿<?php
+<?php
 declare(strict_types=1);
 
 require_once __DIR__ . '/backend_common.php';
@@ -34,21 +34,8 @@ $sql = "
     LEFT JOIN applications a ON a.application_id = s.application_id
     LEFT JOIN scholars sc ON sc.scholar_id = a.scholar_id
     LEFT JOIN requirements r ON r.requirement_id = s.requirement_id
-    WHERE LOWER(TRIM(COALESCE(s.status, ''))) IN (
-        'pending',
-        'approved',
-        'rejected',
-        'under_verification',
-        'for_verification'
-    )
-    ORDER BY CASE LOWER(TRIM(COALESCE(s.status, '')))
-        WHEN 'pending' THEN 0
-        WHEN 'under_verification' THEN 1
-        WHEN 'for_verification' THEN 2
-        WHEN 'approved' THEN 3
-        WHEN 'rejected' THEN 4
-        ELSE 5
-    END, s.upload_date DESC
+    WHERE s.status = 'pending'
+    ORDER BY s.upload_date DESC
     LIMIT ? OFFSET ?
 ";
 

@@ -242,5 +242,24 @@ function make_public_file_url(string $path): string
         }
     }
 
-    return $scheme . '://' . $host . $basePath . '/serve_file.php?path=' . rawurlencode($normalizedPath);
+    $servePath = ($basePath !== '' ? $basePath : '') . '/serve_file.php?path=' . rawurlencode($normalizedPath);
+
+    // Prefer explicit public base URL in reverse-proxy deployments.
+    $publicBaseUrl = trim((string) (getenv('PUBLIC_BASE_URL') ?: getenv('APP_PUBLIC_BASE_URL') ?: ''));
+    if ($publicBaseUrl !== '') {
+        return rtrim($publicBaseUrl, '/') . $servePath;
+    }
+
+    // If host is unresolved/internal, return a relative URL so frontend resolves
+    // against its configured API base origin.
+    $isLocalHost = in_array(strtolower($host), ['localhost', '127.0.0.1', '::1'], true)
+        || str_starts_with(strtolower($host), 'localhost:')
+        || str_starts_with(strtolower($host), '127.0.0.1:')
+        || str_starts_with(strtolower($host), '[::1]:');
+
+    if ($isLocalHost) {
+        return $servePath;
+    }
+
+    return $scheme . '://' . $host . $servePath;
 }
