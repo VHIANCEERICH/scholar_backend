@@ -297,7 +297,12 @@ if ($applicationId <= 0) {
     }
 }
 
-$uploadDir = __DIR__ . '/uploads/';
+$uploadsRoot = trim((string) (getenv('UPLOADS_ROOT_DIR') ?: ''));
+if ($uploadsRoot === '') {
+    $uploadsRoot = __DIR__ . '/uploads';
+}
+
+$uploadDir = rtrim(str_replace('\\', '/', $uploadsRoot), '/') . '/';
 if (!is_dir($uploadDir) && !mkdir($uploadDir, 0777, true) && !is_dir($uploadDir)) {
     upload_json_error('Failed to create upload directory', 500);
 }

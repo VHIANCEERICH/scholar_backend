@@ -52,9 +52,25 @@ if (!preg_match('#^uploads(?:/|$)#i', $normalizedPath)) {
     exit('Invalid path');
 }
 
-$baseDir = realpath(__DIR__);
-$filePath = realpath(__DIR__ . DIRECTORY_SEPARATOR . str_replace('/', DIRECTORY_SEPARATOR, $normalizedPath));
-if ($baseDir === false || $filePath === false || strpos($filePath, $baseDir) !== 0 || !is_file($filePath)) {
+$uploadsRoot = trim((string) (getenv('UPLOADS_ROOT_DIR') ?: ''));
+if ($uploadsRoot === '') {
+    $uploadsRoot = __DIR__ . '/uploads';
+}
+
+$uploadsRoot = rtrim(str_replace('\\', '/', $uploadsRoot), '/');
+$uploadsRootReal = realpath($uploadsRoot);
+if ($uploadsRootReal === false || !is_dir($uploadsRootReal)) {
+    http_response_code(404);
+    exit('File not found');
+}
+
+$relativeInsideUploads = preg_replace('#^uploads(?:/|$)#i', '', $normalizedPath);
+$relativeInsideUploads = ltrim((string) $relativeInsideUploads, '/');
+$requested = $uploadsRootReal . DIRECTORY_SEPARATOR . str_replace('/', DIRECTORY_SEPARATOR, $relativeInsideUploads);
+$filePath = realpath($requested);
+$uploadsRootNorm = rtrim(str_replace('\\', '/', $uploadsRootReal), '/');
+$filePathNorm = $filePath === false ? '' : str_replace('\\', '/', $filePath);
+if ($filePath === false || !is_file($filePath) || strpos($filePathNorm, $uploadsRootNorm . '/') !== 0) {
     http_response_code(404);
     exit('File not found');
 }
