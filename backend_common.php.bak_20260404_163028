@@ -170,7 +170,7 @@ function fetch_all_assoc(mysqli_stmt $stmt): array
 
 function make_public_file_url(string $path): string
 {
-    if (trim($path) === '') {
+    if ($path === '') {
         return '';
     }
 
@@ -179,67 +179,23 @@ function make_public_file_url(string $path): string
     }
 
     $normalizedPath = str_replace('\\', '/', $path);
-
-    // Accept absolute filesystem paths by extracting the uploads segment.
-    $uploadsPos = stripos($normalizedPath, '/uploads/');
-    if ($uploadsPos !== false) {
-        $normalizedPath = substr($normalizedPath, $uploadsPos + 1);
-    } else {
-        $normalizedPath = preg_replace('#^.*?/scholar_php/#i', '', $normalizedPath);
-        $normalizedPath = ltrim((string) $normalizedPath, '/');
-
-        // Final fallback for values like "uploads/file.png" without a leading slash.
-        if (!preg_match('#^uploads(?:/|$)#i', $normalizedPath)) {
-            $uploadsPrefixPos = stripos($normalizedPath, 'uploads/');
-            if ($uploadsPrefixPos !== false) {
-                $normalizedPath = substr($normalizedPath, $uploadsPrefixPos);
-            }
-        }
-    }
-
-    $normalizedPath = preg_replace('#/{2,}#', '/', $normalizedPath);
+    $normalizedPath = preg_replace('#^.*?/scholar_php/#i', '', $normalizedPath);
     $normalizedPath = ltrim((string) $normalizedPath, '/');
 
-    if ($normalizedPath === '') {
-        return '';
-    }
-
     $isHttps = !empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off';
-    $forwardedProto = strtolower(trim((string) ($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '')));
-    if ($forwardedProto !== '') {
-        $protoParts = explode(',', $forwardedProto);
-        $forwardedProto = trim((string) ($protoParts[0] ?? ''));
-        if ($forwardedProto === 'https') {
-            $isHttps = true;
-        }
+    $forwardedProto = strtolower((string) ($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? ''));
+    if ($forwardedProto === 'https') {
+        $isHttps = true;
     }
 
     $scheme = $isHttps ? 'https' : 'http';
+    $host = $_SERVER['HTTP_HOST'] ?? 'localhost';
 
-    $host = (string) ($_SERVER['HTTP_X_FORWARDED_HOST'] ?? $_SERVER['HTTP_HOST'] ?? 'localhost');
-    if (str_contains($host, ',')) {
-        $host = trim((string) explode(',', $host)[0]);
-    }
-    if ($host === '') {
-        $host = 'localhost';
-    }
-
-    // Support both root deployment and /scholar_php deployment paths.
+    // Support both Render (served from repo root) and XAMPP (/scholar_php) paths.
     $scriptName = (string) ($_SERVER['SCRIPT_NAME'] ?? '');
     $basePath = rtrim(str_replace('\\', '/', dirname($scriptName)), '/');
     if ($basePath === '.' || $basePath === '/') {
         $basePath = '';
-    }
-
-    $forwardedPrefix = trim((string) ($_SERVER['HTTP_X_FORWARDED_PREFIX'] ?? ''));
-    if ($forwardedPrefix !== '') {
-        $forwardedPrefix = '/' . trim($forwardedPrefix, '/');
-        if ($forwardedPrefix === '/') {
-            $forwardedPrefix = '';
-        }
-        if ($forwardedPrefix !== '' && $forwardedPrefix !== $basePath) {
-            $basePath = $forwardedPrefix;
-        }
     }
 
     return $scheme . '://' . $host . $basePath . '/serve_file.php?path=' . rawurlencode($normalizedPath);

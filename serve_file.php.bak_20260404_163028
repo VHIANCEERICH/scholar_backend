@@ -26,25 +26,7 @@ if ($rawPath === '') {
 }
 
 $normalizedPath = str_replace('\\', '/', $rawPath);
-
-// Accept absolute filesystem paths by extracting the uploads segment.
-$uploadsPos = stripos($normalizedPath, '/uploads/');
-if ($uploadsPos !== false) {
-    $normalizedPath = substr($normalizedPath, $uploadsPos + 1);
-} else {
-    $normalizedPath = preg_replace('#^.*?/scholar_php/#i', '', $normalizedPath);
-    $normalizedPath = ltrim((string) $normalizedPath, '/');
-
-    // Final fallback for values like "uploads/file.png" without a leading slash.
-    if (!preg_match('#^uploads(?:/|$)#i', $normalizedPath)) {
-        $uploadsPrefixPos = stripos($normalizedPath, 'uploads/');
-        if ($uploadsPrefixPos !== false) {
-            $normalizedPath = substr($normalizedPath, $uploadsPrefixPos);
-        }
-    }
-}
-
-$normalizedPath = preg_replace('#/{2,}#', '/', $normalizedPath);
+$normalizedPath = preg_replace('#^.*?/scholar_php/#i', '', $normalizedPath);
 $normalizedPath = ltrim((string) $normalizedPath, '/');
 
 if (!preg_match('#^uploads(?:/|$)#i', $normalizedPath)) {
