@@ -34,20 +34,12 @@ $sql = "
     LEFT JOIN applications a ON a.application_id = s.application_id
     LEFT JOIN scholars sc ON sc.scholar_id = a.scholar_id
     LEFT JOIN requirements r ON r.requirement_id = s.requirement_id
-    WHERE LOWER(TRIM(COALESCE(s.status, ''))) IN (
-        'pending',
-        'approved',
-        'rejected',
-        'under_verification',
-        'for_verification'
-    )
+    WHERE LOWER(TRIM(COALESCE(s.status, ''))) IN ('pending', 'approved', 'rejected')
     ORDER BY CASE LOWER(TRIM(COALESCE(s.status, '')))
         WHEN 'pending' THEN 0
-        WHEN 'under_verification' THEN 1
-        WHEN 'for_verification' THEN 2
-        WHEN 'approved' THEN 3
-        WHEN 'rejected' THEN 4
-        ELSE 5
+        WHEN 'approved' THEN 1
+        WHEN 'rejected' THEN 2
+        ELSE 3
     END, s.upload_date DESC
     LIMIT ? OFFSET ?
 ";
