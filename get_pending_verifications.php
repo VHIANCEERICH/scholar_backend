@@ -52,9 +52,30 @@ $stmt->close();
 
 $items = [];
 foreach ($rows as $row) {
-    $documentType = $row['requirement_name'] ?: ('Requirement #' . (int) $row['requirement_id']);
-    $normalizedType = strtolower($documentType);
-    $showAverage = str_contains($normalizedType, 'report') && str_contains($normalizedType, 'grade');
+    $requirementId = isset($row['requirement_id']) ? (int) $row['requirement_id'] : null;
+    $documentType = $row['requirement_name'] ?: ('Requirement #' . (int) $requirementId);
+    $normalizedType = strtolower(trim((string) $documentType));
+    $isReportOfGrades = $requirementId === 0
+        || $normalizedType === 'requirement #0'
+        || (str_contains($normalizedType, 'report') && str_contains($normalizedType, 'grade'));
+
+    $computedAverage = $row['computed_average'];
+    if (($computedAverage === null || $computedAverage === '') && isset($row['remarks'])) {
+        $remarks = (string) $row['remarks'];
+        if (preg_match('/\baverage\s*:\s*([0-9]+(?:\.[0-9]+)?)/i', $remarks, $m) === 1) {
+            $computedAverage = (float) $m[1];
+        }
+    }
+    $uploadDateRaw = trim((string) ($row['upload_date'] ?? ''));
+    $submittedAt = '';
+    if ($uploadDateRaw !== '') {
+        try {
+            $submittedAt = (new DateTimeImmutable(str_replace('T', ' ', $uploadDateRaw)))
+                ->format(DateTimeInterface::ATOM);
+        } catch (Throwable $e) {
+            $submittedAt = $uploadDateRaw;
+        }
+    }
 
     $items[] = [
         'submission_id' => (int) $row['submission_id'],
@@ -63,16 +84,17 @@ foreach ($rows as $row) {
         'scholar_id' => isset($row['scholar_id']) ? (int) $row['scholar_id'] : null,
         'user_id' => isset($row['user_id']) ? (int) $row['user_id'] : null,
         'document_type' => $documentType,
-        'requirement_id' => isset($row['requirement_id']) ? (int) $row['requirement_id'] : null,
+        'requirement_id' => $requirementId,
         'file_path' => $row['file_path'],
         'image_url' => make_public_file_url((string) $row['file_path']),
         'status' => $row['status'],
         'admin_status' => ucfirst((string) $row['status']),
         'upload_date' => $row['upload_date'],
+        'submitted_at' => $submittedAt,
         'remarks' => $row['remarks'],
         'reviewer_comment' => $row['reviewer_comment'],
-        'computed_average' => $showAverage ? $row['computed_average'] : null,
-        'average' => $showAverage ? $row['computed_average'] : null,
+        'computed_average' => $isReportOfGrades ? $computedAverage : null,
+        'average' => $isReportOfGrades ? $computedAverage : null,
         'scholar_name' => trim(implode(' ', array_filter([
             $row['first_name'] ?? '',
             $row['middle_name'] ?? '',
