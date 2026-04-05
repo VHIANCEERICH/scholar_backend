@@ -14,7 +14,7 @@ $offset = isset($_GET['offset']) ? (int) $_GET['offset'] : 0;
 $limit = max(1, min(300, $limit));
 $offset = max(0, $offset);
 
-header('Cache-Control: public, max-age=10');
+header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
 
 $sql = "
     SELECT

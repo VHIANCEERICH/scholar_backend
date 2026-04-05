@@ -73,7 +73,73 @@ if (!$stmt->execute()) {
 $commentId = (int) $stmt->insert_id;
 $stmt->close();
 
+// Mirror scholar comments into replies so Admin Notifications can display them.
+$mirroredReplyId = 0;
+if (db_table_exists($conn, 'replies') && db_table_exists($conn, 'notifications')) {
+    $notificationId = 0;
+    $announcementMarker = 'ANNOUNCEMENT_ID:' . $announcementId . '%';
+
+    $nStmt = db_prepare(
+        $conn,
+        'SELECT notification_id
+         FROM notifications
+         WHERE user_id = ?
+           AND message LIKE ?
+         ORDER BY notification_id DESC
+         LIMIT 1'
+    );
+    $nStmt->bind_param('is', $userId, $announcementMarker);
+    $nStmt->execute();
+    $nRow = $nStmt->get_result()?->fetch_assoc();
+    $nStmt->close();
+    $notificationId = (int) ($nRow['notification_id'] ?? 0);
+
+    // Fallback: create a notification record for this scholar if not found,
+    // then attach the reply to keep thread/admin-notification wiring intact.
+    if ($notificationId <= 0) {
+        $aStmt = db_prepare(
+            $conn,
+            'SELECT title, message FROM announcements WHERE announcement_id = ? LIMIT 1'
+        );
+        $aStmt->bind_param('i', $announcementId);
+        $aStmt->execute();
+        $aRow = $aStmt->get_result()?->fetch_assoc();
+        $aStmt->close();
+
+        $announcementTitle = trim((string) ($aRow['title'] ?? ''));
+        $announcementBody = trim((string) ($aRow['message'] ?? ''));
+        $payload = 'ANNOUNCEMENT_ID:' . $announcementId . "\n" .
+            ($announcementTitle !== ''
+                ? ($announcementTitle . ($announcementBody !== '' ? "\n" . $announcementBody : ''))
+                : $announcementBody);
+
+        $insertNotification = db_prepare(
+            $conn,
+            'INSERT INTO notifications (user_id, message) VALUES (?, ?)'
+        );
+        $insertNotification->bind_param('is', $userId, $payload);
+        if ($insertNotification->execute()) {
+            $notificationId = (int) $insertNotification->insert_id;
+        }
+        $insertNotification->close();
+    }
+
+    if ($notificationId > 0) {
+        $visibility = 'admin';
+        $rStmt = db_prepare(
+            $conn,
+            'INSERT INTO replies (notification_id, user_id, message, visibility) VALUES (?, ?, ?, ?)'
+        );
+        $rStmt->bind_param('iiss', $notificationId, $userId, $message, $visibility);
+        if ($rStmt->execute()) {
+            $mirroredReplyId = (int) $rStmt->insert_id;
+        }
+        $rStmt->close();
+    }
+}
+
 respond_success([
     'message' => 'Comment saved successfully',
     'comment_id' => $commentId,
+    'mirrored_reply_id' => $mirroredReplyId,
 ]);
