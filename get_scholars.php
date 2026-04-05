@@ -3,6 +3,13 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/backend_common.php';
 
+require_method('GET');
+header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
+
+$archivedParam = strtolower(trim((string) ($_GET['archived'] ?? '0')));
+$includeArchived = in_array($archivedParam, ['1', 'true', 'yes', 'archived'], true);
+$activeFlag = $includeArchived ? 0 : 1;
+
 $hasDutyTotals = db_table_exists($conn, 'duty_totals');
 
 $sql = "
@@ -33,11 +40,16 @@ $sql = "
     FROM scholars s
     LEFT JOIN users u ON u.user_id = s.user_id
     " . ($hasDutyTotals ? "LEFT JOIN duty_totals dt ON dt.user_id = u.user_id" : "") . "
+    WHERE COALESCE(u.is_active, 1) = ?
     ORDER BY s.scholar_id DESC
 ";
 
-$result = $conn->query($sql);
+$stmt = db_prepare($conn, $sql);
+$stmt->bind_param('i', $activeFlag);
+$stmt->execute();
+$result = $stmt->get_result();
 if (!$result) {
+    $stmt->close();
     respond_error('Failed to retrieve scholars: ' . $conn->error, 500);
 }
 
@@ -61,5 +73,6 @@ while ($row = $result->fetch_assoc()) {
     }
     $scholars[] = $row;
 }
+$stmt->close();
 
 respond_success(['data' => $scholars]);

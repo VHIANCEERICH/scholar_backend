@@ -1,18 +1,27 @@
 <?php
 declare(strict_types=1);
 
-header("Access-Control-Allow-Origin: *");
-header("Access-Control-Allow-Methods: GET, POST, OPTIONS");
-header("Access-Control-Allow-Headers: Content-Type, Authorization, X-Requested-With");
-
-if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
-    exit;
-}
-
 require_once __DIR__ . '/backend_common.php';
 
+require_method('GET');
+header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
+
+$archivedParam = strtolower(trim((string) ($_GET['archived'] ?? '0')));
+$includeArchived = in_array($archivedParam, ['1', 'true', 'yes', 'archived'], true);
+$activeFlag = $includeArchived ? 0 : 1;
+
 $scholarCounts = [];
-$countResult = $conn->query("SELECT scholarship_category, COUNT(*) AS total FROM scholars GROUP BY scholarship_category");
+$countStmt = db_prepare(
+    $conn,
+    'SELECT scholarship_category, COUNT(*) AS total
+     FROM scholars s
+     INNER JOIN users u ON u.user_id = s.user_id
+     WHERE COALESCE(u.is_active, 1) = ?
+     GROUP BY scholarship_category'
+);
+$countStmt->bind_param('i', $activeFlag);
+$countStmt->execute();
+$countResult = $countStmt->get_result();
 if ($countResult) {
     while ($row = $countResult->fetch_assoc()) {
         $category = trim((string) ($row['scholarship_category'] ?? 'Uncategorized'));
@@ -22,16 +31,19 @@ if ($countResult) {
         ];
     }
 }
+$countStmt->close();
 
 $gradeDue = '';
 $renewalDue = '';
 if (db_table_exists($conn, 'requirements')) {
-    $reqResult = $conn->query("SELECT requirement_name, due_date FROM requirements");
+    $reqResult = $conn->query('SELECT requirement_name, due_date FROM requirements');
     if ($reqResult) {
         while ($row = $reqResult->fetch_assoc()) {
             $name = strtolower((string) ($row['requirement_name'] ?? ''));
             $due = (string) ($row['due_date'] ?? '');
-            if ($due === '') continue;
+            if ($due === '') {
+                continue;
+            }
             if (strpos($name, 'grade') !== false && $gradeDue === '') {
                 $gradeDue = $due;
             }
@@ -95,6 +107,7 @@ $sql = "
     LEFT JOIN applications a ON a.scholar_id = s.scholar_id
     LEFT JOIN submissions sub ON sub.application_id = a.application_id
     LEFT JOIN duty_totals dt ON dt.user_id = u.user_id
+    WHERE COALESCE(u.is_active, 1) = ?
     GROUP BY
         u.user_id,
         s.scholar_id,
@@ -114,10 +127,13 @@ $sql = "
         dt.rendered_hours,
         dt.required_hours
     ORDER BY scholar_name ASC
-    LIMIT 50
+    LIMIT 200
 ";
 
-$result = $conn->query($sql);
+$stmt = db_prepare($conn, $sql);
+$stmt->bind_param('i', $activeFlag);
+$stmt->execute();
+$result = $stmt->get_result();
 if ($result) {
     while ($row = $result->fetch_assoc()) {
         $gradeStatusRaw = strtolower((string) ($row['grade_status_raw'] ?? ''));
@@ -159,11 +175,12 @@ if ($result) {
             'retention_gwa' => (string) ($row['retention_gwa'] ?? ''),
             'scholarship_status' => (string) ($row['scholarship_status'] ?? ''),
             'category' => (string) ($row['scholarship_category'] ?? ''),
-            'supervisor' => (string) ($row['supervisor'] ?? '—'),
+            'supervisor' => (string) ($row['supervisor'] ?? '-'),
             'duty_hours' => $dutyHoursDisplay,
         ];
     }
 }
+$stmt->close();
 
 respond_success([
     'category_counts' => $scholarCounts,
