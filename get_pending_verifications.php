@@ -80,7 +80,7 @@ foreach ($rows as $row) {
     } elseif ($requirementId !== null) {
         $documentType = 'Requirement #' . $requirementId;
     } else {
-        $documentType = 'Submitted Document';
+        $documentType = 'Renewal Letter';
     }
 
     $normalizedType = strtolower(trim((string) $documentType));
@@ -133,3 +133,4 @@ foreach ($rows as $row) {
 }
 
 respond_success(['data' => $items]);
+
