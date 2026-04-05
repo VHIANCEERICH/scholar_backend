@@ -163,6 +163,7 @@ $clientAverage = ($clientAverageRaw === null || $clientAverageRaw === '') ? null
 $clientSystemStatus = strtolower(trim((string) ($_POST['system_status'] ?? request_value('system_status', ''))));
 $analysisSource = trim((string) ($_POST['analysis_source'] ?? request_value('analysis_source', '')));
 $analysisNotes = [];
+$remarksForStorage = '[doc_type:' . $documentType . ']' . ($userRemarks !== '' ? ' ' . $userRemarks : '');
 
 function resolve_requirement(mysqli $conn, ?int $requirementId, string $documentType): array
 {
@@ -297,12 +298,7 @@ if ($applicationId <= 0) {
     }
 }
 
-$uploadsRoot = trim((string) (getenv('UPLOADS_ROOT_DIR') ?: ''));
-if ($uploadsRoot === '') {
-    $uploadsRoot = __DIR__ . '/uploads';
-}
-
-$uploadDir = rtrim(str_replace('\\', '/', $uploadsRoot), '/') . '/';
+$uploadDir = __DIR__ . '/uploads/';
 if (!is_dir($uploadDir) && !mkdir($uploadDir, 0777, true) && !is_dir($uploadDir)) {
     upload_json_error('Failed to create upload directory', 500);
 }
@@ -384,13 +380,10 @@ if ($cleanText === '') {
     $analysisNotes[] = 'No text extracted from file.';
 }
 
-$suggestedStatus = $average >= 85 ? 'approved' : 'pending';
-$status = 'pending'; // Always route uploads to admin verification queue first.
-
 if ($gradeCount >= 3) {
-    $analysisSummary = 'Detected ' . $gradeCount . ' grades. Average: ' . round($average, 2) . '. Status: ' . ucfirst($suggestedStatus) . '.';
+    $analysisSummary = 'Detected ' . $gradeCount . ' grades. Average: ' . round($average, 2) . '. Status: ' . ucfirst($status) . '.';
 } elseif ($usedClientAnalysis && $average > 0) {
-    $analysisSummary = 'Client-side analysis used. Average: ' . round($average, 2) . '. Status: ' . ucfirst($suggestedStatus) . '.';
+    $analysisSummary = 'Client-side analysis used. Average: ' . round($average, 2) . '. Status: ' . ucfirst($status) . '.';
 } else {
     $analysisSummary = 'Analysis unavailable for this file.';
 }
@@ -405,14 +398,14 @@ if ($requirementId === null) {
             'INSERT INTO submissions (application_id, requirement_id, file_path, status, remarks, computed_average)
              VALUES (?, NULL, ?, ?, ?, NULL)'
         );
-        $stmt->bind_param('isss', $applicationId, $relativePath, $status, $userRemarks);
+        $stmt->bind_param('isss', $applicationId, $relativePath, $status, $remarksForStorage);
     } else {
         $stmt = db_prepare(
             $conn,
             'INSERT INTO submissions (application_id, requirement_id, file_path, status, remarks, computed_average)
              VALUES (?, NULL, ?, ?, ?, ?)'
         );
-        $stmt->bind_param('isssd', $applicationId, $relativePath, $status, $userRemarks, $averageToStore);
+        $stmt->bind_param('isssd', $applicationId, $relativePath, $status, $remarksForStorage, $averageToStore);
     }
 } else {
     if ($averageToStore === null) {
@@ -421,14 +414,14 @@ if ($requirementId === null) {
             'INSERT INTO submissions (application_id, requirement_id, file_path, status, remarks, computed_average)
              VALUES (?, ?, ?, ?, ?, NULL)'
         );
-        $stmt->bind_param('iisss', $applicationId, $requirementId, $relativePath, $status, $userRemarks);
+        $stmt->bind_param('iisss', $applicationId, $requirementId, $relativePath, $status, $remarksForStorage);
     } else {
         $stmt = db_prepare(
             $conn,
             'INSERT INTO submissions (application_id, requirement_id, file_path, status, remarks, computed_average)
              VALUES (?, ?, ?, ?, ?, ?)'
         );
-        $stmt->bind_param('iisssd', $applicationId, $requirementId, $relativePath, $status, $userRemarks, $averageToStore);
+        $stmt->bind_param('iisssd', $applicationId, $requirementId, $relativePath, $status, $remarksForStorage, $averageToStore);
     }
 }
 
@@ -457,7 +450,6 @@ respond_success([
     'average' => round($average, 2),
     'grade_count' => $gradeCount,
     'system_status' => $status,
-    'suggested_status' => $suggestedStatus,
     'remarks' => $analysisSummary,
     'user_remarks' => $userRemarks,
     'analysis_notes' => implode(' | ', $analysisNotes),
@@ -466,6 +458,7 @@ respond_success([
     'processing_seconds' => round($processingSeconds, 3),
     'extracted_text' => $preview,
 ], 201);
+
 
 
 

@@ -12,6 +12,19 @@ $offset = max(0, $offset);
 
 header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
 
+function extract_doc_type_marker(string $remarks): string
+{
+    if (preg_match('/\[doc_type:([^\]]+)\]/i', $remarks, $m) === 1) {
+        return trim((string) ($m[1] ?? ''));
+    }
+    return '';
+}
+
+function strip_doc_type_marker(string $remarks): string
+{
+    return trim((string) preg_replace('/\[doc_type:[^\]]+\]\s*/i', '', $remarks));
+}
+
 $sql = "
     SELECT
         s.submission_id,
@@ -52,20 +65,36 @@ $stmt->close();
 
 $items = [];
 foreach ($rows as $row) {
-    $requirementId = isset($row['requirement_id']) ? (int) $row['requirement_id'] : null;
-    $documentType = $row['requirement_name'] ?: ('Requirement #' . (int) $requirementId);
+    $requirementId = isset($row['requirement_id']) && $row['requirement_id'] !== null
+        ? (int) $row['requirement_id']
+        : null;
+
+    $rawRemarks = (string) ($row['remarks'] ?? '');
+    $markerDocType = extract_doc_type_marker($rawRemarks);
+
+    $documentType = '';
+    if ($markerDocType !== '') {
+        $documentType = $markerDocType;
+    } elseif (!empty($row['requirement_name'])) {
+        $documentType = (string) $row['requirement_name'];
+    } elseif ($requirementId !== null) {
+        $documentType = 'Requirement #' . $requirementId;
+    } else {
+        $documentType = 'Submitted Document';
+    }
+
     $normalizedType = strtolower(trim((string) $documentType));
     $isReportOfGrades = $requirementId === 0
         || $normalizedType === 'requirement #0'
         || (str_contains($normalizedType, 'report') && str_contains($normalizedType, 'grade'));
 
     $computedAverage = $row['computed_average'];
-    if (($computedAverage === null || $computedAverage === '') && isset($row['remarks'])) {
-        $remarks = (string) $row['remarks'];
-        if (preg_match('/\baverage\s*:\s*([0-9]+(?:\.[0-9]+)?)/i', $remarks, $m) === 1) {
+    if (($computedAverage === null || $computedAverage === '') && $rawRemarks !== '') {
+        if (preg_match('/\baverage\s*:\s*([0-9]+(?:\.[0-9]+)?)/i', $rawRemarks, $m) === 1) {
             $computedAverage = (float) $m[1];
         }
     }
+
     $uploadDateRaw = trim((string) ($row['upload_date'] ?? ''));
     $submittedAt = '';
     if ($uploadDateRaw !== '') {
@@ -91,7 +120,7 @@ foreach ($rows as $row) {
         'admin_status' => ucfirst((string) $row['status']),
         'upload_date' => $row['upload_date'],
         'submitted_at' => $submittedAt,
-        'remarks' => $row['remarks'],
+        'remarks' => strip_doc_type_marker($rawRemarks),
         'reviewer_comment' => $row['reviewer_comment'],
         'computed_average' => $isReportOfGrades ? $computedAverage : null,
         'average' => $isReportOfGrades ? $computedAverage : null,
@@ -104,4 +133,3 @@ foreach ($rows as $row) {
 }
 
 respond_success(['data' => $items]);
-
