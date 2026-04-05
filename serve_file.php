@@ -27,6 +27,31 @@ if ($rawPath === '') {
 
 $normalizedPath = str_replace('\\', '/', $rawPath);
 
+// If a full URL (or nested serve_file URL) is passed, extract the original path.
+if (preg_match('/^https?:\/\//i', $normalizedPath)) {
+    $parts = parse_url($normalizedPath);
+    if (is_array($parts)) {
+        $query = [];
+        parse_str((string) ($parts['query'] ?? ''), $query);
+        $candidate = trim((string) ($query['path'] ?? ''));
+        if ($candidate !== '') {
+            $normalizedPath = str_replace('\\', '/', $candidate);
+        } else {
+            $normalizedPath = str_replace('\\', '/', (string) ($parts['path'] ?? ''));
+        }
+    }
+} elseif (stripos($normalizedPath, 'serve_file.php') !== false && str_contains($normalizedPath, 'path=')) {
+    $queryPos = strpos($normalizedPath, '?');
+    if ($queryPos !== false) {
+        $query = [];
+        parse_str((string) substr($normalizedPath, $queryPos + 1), $query);
+        $candidate = trim((string) ($query['path'] ?? ''));
+        if ($candidate !== '') {
+            $normalizedPath = str_replace('\\', '/', $candidate);
+        }
+    }
+}
+
 // Accept absolute filesystem paths by extracting the uploads segment.
 $uploadsPos = stripos($normalizedPath, '/uploads/');
 if ($uploadsPos !== false) {
