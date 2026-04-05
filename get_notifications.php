@@ -1,4 +1,4 @@
-﻿<?php
+<?php
 declare(strict_types=1);
 
 require_once __DIR__ . '/backend_common.php';
@@ -13,7 +13,7 @@ $includeArchived = (int) ($_GET['include_archived'] ?? request_value('include_ar
 $limit = max(1, min(200, $limit));
 $offset = max(0, $offset);
 
-header('Cache-Control: public, max-age=10');
+header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
 
 $hasArchivedColumn = false;
 try {

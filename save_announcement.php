@@ -61,11 +61,27 @@ if ($targetUserId > 0) {
     }
 
     if ($categoryFilter !== '') {
+        $categoryAliases = [$categoryFilter];
+        if ($categoryFilter === 'academic') {
+            $categoryAliases[] = 'academic_scholar';
+        } elseif ($categoryFilter === 'varsity') {
+            $categoryAliases[] = 'varsity_scholar';
+        } elseif ($categoryFilter === 'student_assistant') {
+            $categoryAliases[] = 'student assistant';
+        }
+
+        $placeholders = implode(',', array_fill(0, count($categoryAliases), '?'));
+        $types = str_repeat('s', count($categoryAliases));
         $recipientStmt = db_prepare(
             $conn,
-            "SELECT u.user_id FROM users u INNER JOIN scholars s ON s.user_id = u.user_id WHERE u.role = 'scholar' AND u.is_active = 1 AND s.scholarship_category = ?"
+            "SELECT u.user_id
+             FROM users u
+             INNER JOIN scholars s ON s.user_id = u.user_id
+             WHERE u.role = 'scholar'
+               AND u.is_active = 1
+               AND LOWER(TRIM(COALESCE(s.scholarship_category, ''))) IN ($placeholders)"
         );
-        $recipientStmt->bind_param('s', $categoryFilter);
+        $recipientStmt->bind_param($types, ...$categoryAliases);
         $recipientStmt->execute();
         $recipientResult = $recipientStmt->get_result();
     } else {
