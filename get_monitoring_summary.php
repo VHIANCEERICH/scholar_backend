@@ -55,8 +55,8 @@ if (db_table_exists($conn, 'requirements')) {
 }
 
 $submissionRows = [];
-$gradeMatcher = "(sub2.requirement_id = 0 OR LOWER(COALESCE(r2.requirement_name, '')) LIKE '%report%grade%' OR LOWER(COALESCE(r2.requirement_name, '')) LIKE '%grade%')";
-$renewalMatcher = "(sub2.requirement_id = 1 OR LOWER(COALESCE(r2.requirement_name, '')) LIKE '%renewal%')";
+$gradeMatcher = "(sub2.requirement_id = 0 OR LOWER(COALESCE(r2.requirement_name, '')) LIKE '%report%grade%' OR LOWER(COALESCE(r2.requirement_name, '')) LIKE '%grade%' OR LOWER(COALESCE(sub2.remarks, '')) LIKE '%[doc_type:report of grades]%')";
+$renewalMatcher = "(sub2.requirement_id = 1 OR LOWER(COALESCE(r2.requirement_name, '')) LIKE '%renewal%' OR LOWER(COALESCE(sub2.remarks, '')) LIKE '%[doc_type:renewal letter]%')";
 $sql = "
     SELECT
         u.user_id,
