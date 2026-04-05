@@ -43,6 +43,8 @@ if (db_table_exists($conn, 'requirements')) {
 }
 
 $submissionRows = [];
+$gradeMatcher = "(sub2.requirement_id = 0 OR LOWER(COALESCE(r2.requirement_name, '')) LIKE '%report%grade%' OR LOWER(COALESCE(r2.requirement_name, '')) LIKE '%grade%')";
+$renewalMatcher = "(sub2.requirement_id = 1 OR LOWER(COALESCE(r2.requirement_name, '')) LIKE '%renewal%')";
 $sql = "
     SELECT
         u.user_id,
@@ -53,28 +55,28 @@ $sql = "
          FROM submissions sub2
          INNER JOIN applications a2 ON a2.application_id = sub2.application_id
          LEFT JOIN requirements r2 ON r2.requirement_id = sub2.requirement_id
-         WHERE a2.scholar_id = s.scholar_id AND LOWER(r2.requirement_name) LIKE '%grade%'
+         WHERE a2.scholar_id = s.scholar_id AND {$gradeMatcher}
          ORDER BY sub2.upload_date DESC
          LIMIT 1) AS grade_status_raw,
         (SELECT sub2.upload_date
          FROM submissions sub2
          INNER JOIN applications a2 ON a2.application_id = sub2.application_id
          LEFT JOIN requirements r2 ON r2.requirement_id = sub2.requirement_id
-         WHERE a2.scholar_id = s.scholar_id AND LOWER(r2.requirement_name) LIKE '%grade%'
+         WHERE a2.scholar_id = s.scholar_id AND {$gradeMatcher}
          ORDER BY sub2.upload_date DESC
          LIMIT 1) AS grade_upload_date,
         (SELECT sub2.status
          FROM submissions sub2
          INNER JOIN applications a2 ON a2.application_id = sub2.application_id
          LEFT JOIN requirements r2 ON r2.requirement_id = sub2.requirement_id
-         WHERE a2.scholar_id = s.scholar_id AND LOWER(r2.requirement_name) LIKE '%renewal%'
+         WHERE a2.scholar_id = s.scholar_id AND {$renewalMatcher}
          ORDER BY sub2.upload_date DESC
          LIMIT 1) AS renewal_status_raw,
         (SELECT sub2.upload_date
          FROM submissions sub2
          INNER JOIN applications a2 ON a2.application_id = sub2.application_id
          LEFT JOIN requirements r2 ON r2.requirement_id = sub2.requirement_id
-         WHERE a2.scholar_id = s.scholar_id AND LOWER(r2.requirement_name) LIKE '%renewal%'
+         WHERE a2.scholar_id = s.scholar_id AND {$renewalMatcher}
          ORDER BY sub2.upload_date DESC
          LIMIT 1) AS renewal_upload_date,
         s.assigned_area,
