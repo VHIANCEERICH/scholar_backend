@@ -1,0 +1,3 @@
+*.bak_*
+*.bak_nobom_*
+Dockerfile.bak_*
