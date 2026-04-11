@@ -17,7 +17,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-      SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
+      SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL != '' && secrets.SONAR_HOST_URL || 'https://sonarcloud.io' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -38,11 +38,6 @@ jobs:
 
           if [ -z "${SONAR_TOKEN}" ]; then
             echo "::warning title=Missing SONAR_TOKEN::Skipping SonarQube scan. Set repository secret SONAR_TOKEN to enable it."
-            run_scan=false
-          fi
-
-          if [ -z "${SONAR_HOST_URL}" ]; then
-            echo "::warning title=Missing SONAR_HOST_URL::Skipping SonarQube scan. Set repository secret SONAR_HOST_URL (example: https://sonarqube.yourdomain.com)."
             run_scan=false
           fi
 
