@@ -1,0 +1,83 @@
+name: SonarQube
+
+on:
+  push:
+    branches:
+      - main
+      - master
+  pull_request:
+    types: [opened, synchronize, reopened]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  sonar:
+    name: SonarQube Scan
+    runs-on: ubuntu-latest
+    env:
+      SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+      SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Prepare SonarQube configuration
+        id: sonar_config
+        shell: bash
+        run: |
+          run_scan=true
+          resolved_host="${SONAR_HOST_URL:-https://sonarcloud.io}"
+
+          if [ -z "${SONAR_TOKEN}" ]; then
+            echo "::warning title=Missing SONAR_TOKEN::Skipping SonarQube scan. Set repository secret SONAR_TOKEN to enable it."
+            run_scan=false
+          fi
+
+          if [ "${run_scan}" = "true" ]; then
+            case "${resolved_host}" in
+              http://*|https://*)
+                echo "SONAR_HOST_URL is valid: ${resolved_host}"
+                ;;
+              *)
+                echo "::error title=Invalid SONAR_HOST_URL::SONAR_HOST_URL must start with http:// or https://. Current value: ${resolved_host}"
+                exit 1
+                ;;
+            esac
+
+            case "${resolved_host}" in
+              */api/*)
+                echo "::error title=Invalid SONAR_HOST_URL::Use the base server URL only (for example: https://sonarqube.yourdomain.com), not an API path. Current value: ${resolved_host}"
+                exit 1
+                ;;
+            esac
+
+            # SonarCloud requires sonar.organization to be set in sonar-project.properties.
+            if [ "${resolved_host}" = "https://sonarcloud.io" ]; then
+              if ! grep -Eq '^[[:space:]]*sonar\.organization[[:space:]]*=' sonar-project.properties; then
+                echo "::error title=Missing sonar.organization::Add sonar.organization=<your_org_key> to sonar-project.properties for SonarCloud analysis."
+                exit 1
+              fi
+            fi
+          fi
+
+          echo "SONAR_HOST_URL=${resolved_host}" >> "$GITHUB_ENV"
+          echo "run_scan=${run_scan}" >> "$GITHUB_OUTPUT"
+
+      - name: SonarQube Scan
+        if: steps.sonar_config.outputs.run_scan == 'true'
+        uses: sonarsource/sonarqube-scan-action@v6
+
+      - name: SonarQube Quality Gate
+        if: steps.sonar_config.outputs.run_scan == 'true'
+        uses: sonarsource/sonarqube-quality-gate-action@v1.2.0
+        timeout-minutes: 10
