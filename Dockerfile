@@ -19,3 +19,4 @@ RUN mkdir -p /var/www/html/uploads \
 ENV TESSERACT_PATH=/usr/bin/tesseract
 EXPOSE 9000
 USER www-data
+# trigger
