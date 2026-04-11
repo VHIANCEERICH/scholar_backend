@@ -30,42 +30,51 @@ jobs:
           distribution: temurin
           java-version: "17"
 
-      - name: Validate SonarQube configuration
+      - name: Check SonarQube configuration
+        id: sonar_config
         shell: bash
         run: |
+          run_scan=true
+
           if [ -z "${SONAR_TOKEN}" ]; then
-            echo "::error title=Missing SONAR_TOKEN::Set repository secret SONAR_TOKEN."
-            exit 1
+            echo "::warning title=Missing SONAR_TOKEN::Skipping SonarQube scan. Set repository secret SONAR_TOKEN to enable it."
+            run_scan=false
           fi
 
           if [ -z "${SONAR_HOST_URL}" ]; then
-            echo "::error title=Missing SONAR_HOST_URL::Set repository secret SONAR_HOST_URL (example: https://sonarqube.yourdomain.com)."
-            exit 1
+            echo "::warning title=Missing SONAR_HOST_URL::Skipping SonarQube scan. Set repository secret SONAR_HOST_URL (example: https://sonarqube.yourdomain.com)."
+            run_scan=false
           fi
 
-          case "${SONAR_HOST_URL}" in
-            http://*|https://*)
-              echo "SONAR_HOST_URL is valid: ${SONAR_HOST_URL}"
-              ;;
-            *)
-              echo "::error title=Invalid SONAR_HOST_URL::SONAR_HOST_URL must start with http:// or https://. Current value: ${SONAR_HOST_URL}"
-              exit 1
-              ;;
-          esac
+          if [ "${run_scan}" = "true" ]; then
+            case "${SONAR_HOST_URL}" in
+              http://*|https://*)
+                echo "SONAR_HOST_URL is valid: ${SONAR_HOST_URL}"
+                ;;
+              *)
+                echo "::error title=Invalid SONAR_HOST_URL::SONAR_HOST_URL must start with http:// or https://. Current value: ${SONAR_HOST_URL}"
+                exit 1
+                ;;
+            esac
 
-          case "${SONAR_HOST_URL}" in
-            */api/*)
-              echo "::error title=Invalid SONAR_HOST_URL::Use the base server URL only (for example: https://sonarqube.yourdomain.com), not an API path. Current value: ${SONAR_HOST_URL}"
-              exit 1
-              ;;
-          esac
+            case "${SONAR_HOST_URL}" in
+              */api/*)
+                echo "::error title=Invalid SONAR_HOST_URL::Use the base server URL only (for example: https://sonarqube.yourdomain.com), not an API path. Current value: ${SONAR_HOST_URL}"
+                exit 1
+                ;;
+            esac
+          fi
+
+          echo "run_scan=${run_scan}" >> "$GITHUB_OUTPUT"
 
       - name: SonarQube Scan
+        if: steps.sonar_config.outputs.run_scan == 'true'
         uses: sonarsource/sonarqube-scan-action@v6
         with:
           args: >
             -Dsonar.host.url=${SONAR_HOST_URL}
 
       - name: SonarQube Quality Gate
+        if: steps.sonar_config.outputs.run_scan == 'true'
         uses: sonarsource/sonarqube-quality-gate-action@v1.2.0
         timeout-minutes: 10
