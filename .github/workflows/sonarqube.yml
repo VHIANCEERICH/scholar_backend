@@ -65,9 +65,6 @@ jobs:
       - name: SonarQube Scan
         if: steps.sonar_config.outputs.run_scan == 'true'
         uses: sonarsource/sonarqube-scan-action@v6
-        with:
-          args: >
-            -Dsonar.host.url=${SONAR_HOST_URL}
 
       - name: SonarQube Quality Gate
         if: steps.sonar_config.outputs.run_scan == 'true'
