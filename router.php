@@ -1,5 +1,6 @@
 <?php
 declare(strict_types=1);
+require_once __DIR__ . '/cors_utils.php';
 
 // Render's Docker setup uses `php -S` (no Apache), so `.htaccess` rules are ignored.
 // This router adds correct headers for `/uploads/*` and then falls back to the
@@ -15,14 +16,8 @@ if (str_starts_with($path, '/uploads/')) {
     $baseDir = realpath(__DIR__);
     $filePath = realpath($candidate);
 
-    header('Access-Control-Allow-Origin: *');
-    header('Access-Control-Allow-Methods: GET, OPTIONS');
-    header('Access-Control-Allow-Headers: Content-Type, Authorization, X-Requested-With');
-
-    if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'OPTIONS') {
-        http_response_code(204);
-        exit;
-    }
+    apply_cors_headers(['GET', 'OPTIONS']);
+    handle_preflight();
 
     if ($baseDir !== false && $filePath !== false && str_starts_with($filePath, $baseDir) && is_file($filePath)) {
         $mimeType = 'application/octet-stream';

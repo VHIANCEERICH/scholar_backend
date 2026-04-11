@@ -5,14 +5,11 @@ ini_set('display_errors', '0');
 ini_set('log_errors', '1');
 error_reporting(E_ALL);
 
-header('Access-Control-Allow-Origin: *');
-header('Access-Control-Allow-Methods: GET, OPTIONS');
-header('Access-Control-Allow-Headers: Content-Type, Authorization, X-Requested-With');
+require_once __DIR__ . '/cors_utils.php';
+require_once __DIR__ . '/path_utils.php';
 
-if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'OPTIONS') {
-    http_response_code(204);
-    exit;
-}
+apply_cors_headers(['GET', 'OPTIONS']);
+handle_preflight();
 
 if (strtoupper($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'GET') {
     http_response_code(405);
@@ -25,52 +22,7 @@ if ($rawPath === '') {
     exit('Missing path');
 }
 
-$normalizedPath = str_replace('\\', '/', $rawPath);
-
-// If a full URL (or nested serve_file URL) is passed, extract the original path.
-if (preg_match('/^https?:\/\//i', $normalizedPath)) {
-    $parts = parse_url($normalizedPath);
-    if (is_array($parts)) {
-        $query = [];
-        parse_str((string) ($parts['query'] ?? ''), $query);
-        $candidate = trim((string) ($query['path'] ?? ''));
-        if ($candidate !== '') {
-            $normalizedPath = str_replace('\\', '/', $candidate);
-        } else {
-            $normalizedPath = str_replace('\\', '/', (string) ($parts['path'] ?? ''));
-        }
-    }
-} elseif (stripos($normalizedPath, 'serve_file.php') !== false && str_contains($normalizedPath, 'path=')) {
-    $queryPos = strpos($normalizedPath, '?');
-    if ($queryPos !== false) {
-        $query = [];
-        parse_str((string) substr($normalizedPath, $queryPos + 1), $query);
-        $candidate = trim((string) ($query['path'] ?? ''));
-        if ($candidate !== '') {
-            $normalizedPath = str_replace('\\', '/', $candidate);
-        }
-    }
-}
-
-// Accept absolute filesystem paths by extracting the uploads segment.
-$uploadsPos = stripos($normalizedPath, '/uploads/');
-if ($uploadsPos !== false) {
-    $normalizedPath = substr($normalizedPath, $uploadsPos + 1);
-} else {
-    $normalizedPath = preg_replace('#^.*?/scholar_php/#i', '', $normalizedPath);
-    $normalizedPath = ltrim((string) $normalizedPath, '/');
-
-    // Final fallback for values like "uploads/file.png" without a leading slash.
-    if (!preg_match('#^uploads(?:/|$)#i', $normalizedPath)) {
-        $uploadsPrefixPos = stripos($normalizedPath, 'uploads/');
-        if ($uploadsPrefixPos !== false) {
-            $normalizedPath = substr($normalizedPath, $uploadsPrefixPos);
-        }
-    }
-}
-
-$normalizedPath = preg_replace('#/{2,}#', '/', $normalizedPath);
-$normalizedPath = ltrim((string) $normalizedPath, '/');
+$normalizedPath = normalize_upload_path($rawPath);
 
 if (!preg_match('#^uploads(?:/|$)#i', $normalizedPath)) {
     http_response_code(403);

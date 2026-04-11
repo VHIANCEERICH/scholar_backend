@@ -1,15 +1,12 @@
 <?php
 declare(strict_types=1);
 
-header('Access-Control-Allow-Origin: *');
-header('Access-Control-Allow-Methods: GET, OPTIONS');
-header('Access-Control-Allow-Headers: Content-Type, Authorization, X-Requested-With');
+require_once __DIR__ . '/cors_utils.php';
+
+apply_cors_headers(['GET', 'OPTIONS']);
 header('Content-Type: application/json; charset=utf-8');
 
-if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'OPTIONS') {
-    http_response_code(204);
-    exit;
-}
+handle_preflight();
 
 echo json_encode([
     'status' => 'ok',

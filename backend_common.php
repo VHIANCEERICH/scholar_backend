@@ -4,19 +4,17 @@ ini_set('display_errors', '0');
 ini_set('log_errors', '1');
 error_reporting(E_ALL);
 
-header('Access-Control-Allow-Origin: *');
-header('Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS');
-header('Access-Control-Allow-Headers: Content-Type, Authorization, X-Requested-With');
+require_once __DIR__ . '/cors_utils.php';
+require_once __DIR__ . '/path_utils.php';
+
+apply_cors_headers(['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS']);
 header('Content-Type: application/json; charset=utf-8');
 
 if (ob_get_level() === 0) {
     ob_start();
 }
 
-if (($_SERVER['REQUEST_METHOD'] ?? '') === 'OPTIONS') {
-    http_response_code(204);
-    exit;
-}
+handle_preflight();
 
 require_once __DIR__ . '/connection.php';
 
@@ -32,9 +30,7 @@ register_shutdown_function(function (): void {
     }
 
     if (!headers_sent()) {
-        header('Access-Control-Allow-Origin: *');
-        header('Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS');
-        header('Access-Control-Allow-Headers: Content-Type, Authorization, X-Requested-With');
+        apply_cors_headers(['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS']);
         header('Content-Type: application/json; charset=utf-8');
         http_response_code(500);
     }
@@ -174,52 +170,7 @@ function make_public_file_url(string $path): string
         return '';
     }
 
-    $normalizedPath = str_replace('\\', '/', trim($path));
-
-    // Handle full URLs and existing serve_file links by extracting the source path.
-    if (preg_match('/^https?:\/\//i', $normalizedPath)) {
-        $parts = parse_url($normalizedPath);
-        if (is_array($parts)) {
-            $query = [];
-            parse_str((string) ($parts['query'] ?? ''), $query);
-            $candidate = trim((string) ($query['path'] ?? ''));
-            if ($candidate !== '') {
-                $normalizedPath = str_replace('\\', '/', $candidate);
-            } else {
-                $normalizedPath = str_replace('\\', '/', (string) ($parts['path'] ?? ''));
-            }
-        }
-    } elseif (stripos($normalizedPath, 'serve_file.php') !== false && str_contains($normalizedPath, 'path=')) {
-        $queryPos = strpos($normalizedPath, '?');
-        if ($queryPos !== false) {
-            $query = [];
-            parse_str((string) substr($normalizedPath, $queryPos + 1), $query);
-            $candidate = trim((string) ($query['path'] ?? ''));
-            if ($candidate !== '') {
-                $normalizedPath = str_replace('\\', '/', $candidate);
-            }
-        }
-    }
-
-    // Accept absolute filesystem paths by extracting the uploads segment.
-    $uploadsPos = stripos($normalizedPath, '/uploads/');
-    if ($uploadsPos !== false) {
-        $normalizedPath = substr($normalizedPath, $uploadsPos + 1);
-    } else {
-        $normalizedPath = preg_replace('#^.*?/scholar_php/#i', '', $normalizedPath);
-        $normalizedPath = ltrim((string) $normalizedPath, '/');
-
-        // Final fallback for values like "uploads/file.png" without a leading slash.
-        if (!preg_match('#^uploads(?:/|$)#i', $normalizedPath)) {
-            $uploadsPrefixPos = stripos($normalizedPath, 'uploads/');
-            if ($uploadsPrefixPos !== false) {
-                $normalizedPath = substr($normalizedPath, $uploadsPrefixPos);
-            }
-        }
-    }
-
-    $normalizedPath = preg_replace('#/{2,}#', '/', $normalizedPath);
-    $normalizedPath = ltrim((string) $normalizedPath, '/');
+    $normalizedPath = normalize_upload_path($path);
 
     if ($normalizedPath === '') {
         return '';

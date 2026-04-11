@@ -12,8 +12,10 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /var/www/html
-COPY . /var/www/html
-RUN mkdir -p /var/www/html/uploads
+COPY *.php /var/www/html/
+RUN mkdir -p /var/www/html/uploads \
+    && chown -R www-data:www-data /var/www/html
 
 ENV TESSERACT_PATH=/usr/bin/tesseract
 EXPOSE 9000
+USER www-data
