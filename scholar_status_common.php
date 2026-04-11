@@ -22,3 +22,4 @@ function set_scholar_active_state(mysqli $conn, int $userId, bool $isActive, str
         respond_error('Scholar not found', 404);
     }
 }
+//erich
