@@ -1,4 +1,4 @@
-FROM php:8.2-cli
+FROM php:8.2-fpm
 
 RUN apt-get update && apt-get install -y \
     libpng-dev \
@@ -11,12 +11,9 @@ RUN apt-get update && apt-get install -y \
     && docker-php-ext-install mysqli pdo pdo_mysql \
     && rm -rf /var/lib/apt/lists/*
 
-WORKDIR /app
-COPY . /app
-RUN mkdir -p /app/uploads
+WORKDIR /var/www/html
+COPY . /var/www/html
+RUN mkdir -p /var/www/html/uploads
 
-ENV PORT=10000
 ENV TESSERACT_PATH=/usr/bin/tesseract
-EXPOSE 10000
-
-CMD ["sh", "-c", "php -S 0.0.0.0:${PORT} -t /app router.php"]
+EXPOSE 9000
