@@ -23,6 +23,23 @@ function oauth_current_base_url(): string
     return $scheme . '://' . $host . ($scriptDir !== '' ? $scriptDir : '');
 }
 
+function oauth_is_valid_success_url(string $url): bool
+{
+    $parsed = parse_url($url);
+    if (!is_array($parsed)) {
+        return false;
+    }
+
+    $scheme = strtolower((string) ($parsed['scheme'] ?? ''));
+    $host = strtolower((string) ($parsed['host'] ?? ''));
+
+    if (!in_array($scheme, ['http', 'https'], true) || $host === '') {
+        return false;
+    }
+
+    return true;
+}
+
 function oauth_html(string $title, string $message, int $status = 200): void
 {
     http_response_code($status);
@@ -299,6 +316,12 @@ $_SESSION['google_oauth_user'] = [
 ];
 
 $successUrl = oauth_env('GOOGLE_OAUTH_SUCCESS_URL');
+if ($successUrl === '') {
+    $successUrl = trim((string) ($_SESSION['google_oauth_success_url'] ?? ''));
+}
+if (!oauth_is_valid_success_url($successUrl)) {
+    $successUrl = '';
+}
 if ($successUrl !== '') {
     $query = http_build_query(array_merge([
         'status' => 'success',

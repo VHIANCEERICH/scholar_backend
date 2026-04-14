@@ -23,6 +23,23 @@ function oauth_current_base_url(): string
     return $scheme . '://' . $host . ($scriptDir !== '' ? $scriptDir : '');
 }
 
+function oauth_is_valid_success_url(string $url): bool
+{
+    $parsed = parse_url($url);
+    if (!is_array($parsed)) {
+        return false;
+    }
+
+    $scheme = strtolower((string) ($parsed['scheme'] ?? ''));
+    $host = strtolower((string) ($parsed['host'] ?? ''));
+
+    if (!in_array($scheme, ['http', 'https'], true) || $host === '') {
+        return false;
+    }
+
+    return true;
+}
+
 function oauth_html(string $title, string $message, int $status = 200): void
 {
     http_response_code($status);
@@ -56,6 +73,26 @@ if ($redirectUri === '') {
 
 $_SESSION['google_oauth_role'] = $role;
 $_SESSION['google_oauth_state'] = bin2hex(random_bytes(16));
+
+// Allow caller to control where callback redirects after successful login.
+$successUrl = trim((string) ($_GET['success_url'] ?? ''));
+if ($successUrl === '') {
+    $referer = trim((string) ($_SERVER['HTTP_REFERER'] ?? ''));
+    if ($referer !== '') {
+        $parsed = parse_url($referer);
+        if (is_array($parsed)) {
+            $scheme = strtolower((string) ($parsed['scheme'] ?? ''));
+            $host = (string) ($parsed['host'] ?? '');
+            $port = isset($parsed['port']) ? (int) $parsed['port'] : null;
+            if (in_array($scheme, ['http', 'https'], true) && $host !== '') {
+                $successUrl = $scheme . '://' . $host . ($port !== null ? ':' . $port : '');
+            }
+        }
+    }
+}
+if (oauth_is_valid_success_url($successUrl)) {
+    $_SESSION['google_oauth_success_url'] = $successUrl;
+}
 
 $params = [
     'client_id' => $clientId,
