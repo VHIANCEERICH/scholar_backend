@@ -50,6 +50,12 @@ Set these environment variables:
 - `DB_NAME`
 - `DB_USER`
 - `DB_PASSWORD`
+- `GOOGLE_CLIENT_ID`
+- `GOOGLE_CLIENT_SECRET`
+- `GOOGLE_OAUTH_REDIRECT_URI`
+- `GOOGLE_OAUTH_SUCCESS_URL` if you want the callback to redirect somewhere after login
+
+Render should run the service as a Web Service that listens on `$PORT`. The included Dockerfile now starts the PHP built-in server with `router.php`, which is the simplest way to serve these endpoints on Render.
 
 ## Backend URL
 

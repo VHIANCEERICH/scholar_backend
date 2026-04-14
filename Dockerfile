@@ -1,4 +1,4 @@
-FROM php:8.2-fpm
+FROM php:8.2-cli
 
 RUN apt-get update && apt-get install -y \
     libpng-dev \
@@ -12,11 +12,10 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /var/www/html
-COPY *.php /var/www/html/
+COPY . /var/www/html/
 RUN mkdir -p /var/www/html/uploads \
     && chown -R www-data:www-data /var/www/html
 
 ENV TESSERACT_PATH=/usr/bin/tesseract
-EXPOSE 9000
-USER www-data
-# trigger
+EXPOSE 10000
+CMD ["sh", "-c", "php -S 0.0.0.0:${PORT:-10000} router.php"]
