@@ -301,19 +301,23 @@ $userStmt->close();
 
 if (!$user) {
     if ($role === 'scholar') {
-        if (!oauth_redirect_to_app($frontendUrl, [
+        $pendingParams = [
             'status' => 'pending_account',
             'email' => $email,
             'name' => $name !== '' ? $name : $email,
             'role' => $role,
             'google_id' => $googleId,
-        ], 302)) {
-            oauth_html(
-                'Google Login Pending',
-                'No local account exists for ' . $email . '. Please return to the app and complete account creation.',
-                200
-            );
+        ];
+
+        if (oauth_redirect_to_app($frontendUrl, $pendingParams, 302)) {
+            return;
         }
+
+        oauth_html(
+            'Google Login Pending',
+            'No local account exists for ' . $email . '. Please return to the app and complete account creation.',
+            200
+        );
     }
 
     oauth_render_error(
@@ -351,7 +355,7 @@ if ($localRole === 'scholar') {
     $profileStmt->close();
 
     if (!$scholar) {
-        if (!oauth_redirect_to_app($frontendUrl, [
+        $pendingParams = [
             'status' => 'pending_account',
             'email' => $email,
             'name' => $displayName,
@@ -359,13 +363,17 @@ if ($localRole === 'scholar') {
             'google_id' => $googleId,
             'user_id' => (int) $user['user_id'],
             'scholarship_category' => '',
-        ], 302)) {
-            oauth_html(
-                'Google Login Pending',
-                'Scholar profile not found for this account. Please return to the app and complete account creation.',
-                200
-            );
+        ];
+
+        if (oauth_redirect_to_app($frontendUrl, $pendingParams, 302)) {
+            return;
         }
+
+        oauth_html(
+            'Google Login Pending',
+            'Scholar profile not found for this account. Please return to the app and complete account creation.',
+            200
+        );
     }
 
     $displayName = trim(implode(' ', array_filter([
