@@ -300,29 +300,22 @@ $user = $userStmt->get_result()?->fetch_assoc();
 $userStmt->close();
 
 if (!$user) {
-    if ($role === 'scholar') {
-        $pendingParams = [
-            'status' => 'pending_account',
-            'email' => $email,
-            'name' => $name !== '' ? $name : $email,
-            'role' => $role,
-            'google_id' => $googleId,
-        ];
+    $pendingParams = [
+        'status' => 'pending_account',
+        'email' => $email,
+        'name' => $name !== '' ? $name : $email,
+        'role' => $role,
+        'google_id' => $googleId,
+    ];
 
-        if (oauth_redirect_to_app($frontendUrl, $pendingParams, 302)) {
-            return;
-        }
-
-        oauth_html(
-            'Google Login Pending',
-            'No local account exists for ' . $email . '. Please return to the app and complete account creation.',
-            200
-        );
+    if (oauth_redirect_to_app($frontendUrl, $pendingParams, 302)) {
+        return;
     }
 
-    oauth_render_error(
-        'No local account exists for ' . $email . '. Please ask an administrator to create or link the account.',
-        404
+    oauth_html(
+        'Google Login Pending',
+        'No local account exists for ' . $email . '. Please return to the app and complete account creation.',
+        200
     );
 }
 
