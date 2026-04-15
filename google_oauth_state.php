@@ -68,7 +68,12 @@ function oauth_state_decode(string $state): ?array
         return oauth_state_decode_payload($body);
     }
 
-    return oauth_state_decode_payload($bodyJson);
+    $payload = json_decode($bodyJson, true);
+    if (!is_array($payload)) {
+        return null;
+    }
+
+    return oauth_state_validate_payload($payload);
 }
 
 function oauth_state_decode_payload(string $encoded): ?array
@@ -79,6 +84,11 @@ function oauth_state_decode_payload(string $encoded): ?array
     }
 
     $payload = json_decode($json, true);
+    return oauth_state_validate_payload($payload);
+}
+
+function oauth_state_validate_payload($payload): ?array
+{
     if (!is_array($payload)) {
         return null;
     }
