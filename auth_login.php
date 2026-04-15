@@ -8,6 +8,7 @@ $data = require_fields(['email', 'password']);
 
 $email = trim((string) $data['email']);
 $password = (string) $data['password'];
+$requestedScholarshipCategory = trim((string) ($data['scholarship_category'] ?? $data['scholarship_type'] ?? ''));
 
 $stmt = db_prepare(
     $conn,
@@ -57,9 +58,25 @@ if (($user['role'] ?? '') === 'scholar' && db_table_exists($conn, 'scholars')) {
     $profileStmt->close();
 
     if ($profile) {
+        $profileCategory = trim((string) ($profile['scholarship_category'] ?? ''));
+        if ($profileCategory === '' && $requestedScholarshipCategory !== '') {
+            $profileCategory = $requestedScholarshipCategory;
+
+            $updateStmt = db_prepare(
+                $conn,
+                'UPDATE scholars SET scholarship_category = ? WHERE scholar_id = ?'
+            );
+            $scholarId = (int) ($profile['scholar_id'] ?? 0);
+            if ($scholarId > 0) {
+                $updateStmt->bind_param('si', $profileCategory, $scholarId);
+                $updateStmt->execute();
+            }
+            $updateStmt->close();
+        }
+
         $extra = [
             'scholar_id' => (int) ($profile['scholar_id'] ?? 0),
-            'scholarship_category' => $profile['scholarship_category'] ?? '',
+            'scholarship_category' => $profileCategory,
             'academic_type' => $profile['academic_type'] ?? '',
             'sport_type' => $profile['sport_type'] ?? '',
             'gift_type' => $profile['gift_type'] ?? '',
