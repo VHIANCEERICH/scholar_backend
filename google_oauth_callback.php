@@ -7,6 +7,7 @@ if (session_status() === PHP_SESSION_NONE) {
 
 require_once __DIR__ . '/backend_common.php';
 require_once __DIR__ . '/backend_env.php';
+require_once __DIR__ . '/google_oauth_state.php';
 
 function oauth_env(string $name, string $default = ''): string
 {
@@ -15,12 +16,28 @@ function oauth_env(string $name, string $default = ''): string
 
 function oauth_current_base_url(): string
 {
-    $scheme = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
-    $host = $_SERVER['HTTP_HOST'] ?? 'localhost';
+    $forwardedProto = strtolower(trim((string) ($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '')));
+    if ($forwardedProto !== '') {
+        $forwardedProto = trim((string) explode(',', $forwardedProto)[0]);
+    }
+
+    $scheme = ($forwardedProto === 'https' || (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off'))
+        ? 'https'
+        : 'http';
+
+    $host = (string) ($_SERVER['HTTP_X_FORWARDED_HOST'] ?? $_SERVER['HTTP_HOST'] ?? 'localhost');
+    if (str_contains($host, ',')) {
+        $host = trim((string) explode(',', $host)[0]);
+    }
     $scriptDir = str_replace('\\', '/', dirname($_SERVER['SCRIPT_NAME'] ?? ''));
     $scriptDir = rtrim($scriptDir, '/');
 
     return $scheme . '://' . $host . ($scriptDir !== '' ? $scriptDir : '');
+}
+
+function oauth_redirect_uri(): string
+{
+    return oauth_current_base_url() . '/google_oauth_callback.php';
 }
 
 function oauth_html(string $title, string $message, int $status = 200): void
@@ -150,11 +167,11 @@ function oauth_render_error(string $message, int $status = 400): void
     oauth_html('Google Login Failed', $message, $status);
 }
 
-$expectedState = (string) ($_SESSION['google_oauth_state'] ?? '');
 $incomingState = (string) ($_GET['state'] ?? '');
 $incomingCode = (string) ($_GET['code'] ?? '');
 $incomingError = (string) ($_GET['error'] ?? '');
-$role = strtolower(trim((string) ($_SESSION['google_oauth_role'] ?? ($_GET['role'] ?? 'scholar'))));
+$stateData = oauth_state_decode($incomingState);
+$role = strtolower(trim((string) ($stateData['role'] ?? ($_GET['role'] ?? 'scholar'))));
 if (!in_array($role, ['admin', 'scholar'], true)) {
     $role = 'scholar';
 }
@@ -167,16 +184,13 @@ if ($incomingCode === '') {
     oauth_render_error('Missing authorization code from Google.', 400);
 }
 
-if ($expectedState === '' || !hash_equals($expectedState, $incomingState)) {
+if ($stateData === null) {
     oauth_render_error('Invalid OAuth state. Please try again.', 403);
 }
 
 $clientId = oauth_env('GOOGLE_CLIENT_ID', oauth_env('GOOGLE_OAUTH_CLIENT_ID'));
 $clientSecret = oauth_env('GOOGLE_CLIENT_SECRET', oauth_env('GOOGLE_OAUTH_CLIENT_SECRET'));
-$redirectUri = oauth_env('GOOGLE_OAUTH_REDIRECT_URI');
-if ($redirectUri === '') {
-    $redirectUri = oauth_current_base_url() . '/google_oauth_callback.php';
-}
+$redirectUri = oauth_redirect_uri();
 
 if ($clientId === '' || $clientSecret === '') {
     oauth_render_error('Missing Google client credentials in the backend environment.', 500);
@@ -232,6 +246,16 @@ $user = $userStmt->get_result()?->fetch_assoc();
 $userStmt->close();
 
 if (!$user) {
+    if ($role === 'scholar') {
+        oauth_redirect_to_app([
+            'status' => 'pending_account',
+            'email' => $email,
+            'name' => $name !== '' ? $name : $email,
+            'role' => $role,
+            'google_id' => $googleId,
+        ], 302);
+    }
+
     oauth_render_error(
         'No local account exists for ' . $email . '. Please ask an administrator to create or link the account.',
         404
@@ -267,6 +291,16 @@ if ($localRole === 'scholar') {
     $profileStmt->close();
 
     if (!$scholar) {
+        oauth_redirect_to_app([
+            'status' => 'pending_account',
+            'email' => $email,
+            'name' => $displayName,
+            'role' => $role,
+            'google_id' => $googleId,
+            'user_id' => (int) $user['user_id'],
+            'scholarship_category' => '',
+        ], 302);
+
         oauth_render_error('Scholar profile not found for this account.', 404);
     }
 
@@ -298,20 +332,15 @@ $_SESSION['google_oauth_user'] = [
     'profile' => $profileData,
 ];
 
-$successUrl = oauth_env('GOOGLE_OAUTH_SUCCESS_URL');
-if ($successUrl !== '') {
-    $query = http_build_query(array_merge([
-        'status' => 'success',
-        'user_id' => (int) $user['user_id'],
-        'email' => $email,
-        'name' => $displayName,
-        'role' => $localRole,
-    ], $extra), '', '&', PHP_QUERY_RFC3986);
+$successParams = array_merge([
+    'status' => 'success',
+    'user_id' => (int) $user['user_id'],
+    'email' => $email,
+    'name' => $displayName,
+    'role' => $localRole,
+], $extra);
 
-    $separator = str_contains($successUrl, '?') ? '&' : '?';
-    header('Location: ' . $successUrl . $separator . $query, true, 302);
-    exit;
-}
+oauth_redirect_to_app($successParams, 302);
 
 $message = 'Signed in successfully as ' . $displayName . ' (' . $email . ').';
 if (!empty($extra['scholarship_category'])) {
@@ -319,3 +348,6 @@ if (!empty($extra['scholarship_category'])) {
 }
 
 oauth_html('Google Login Successful', $message, 200);
+
+
+
