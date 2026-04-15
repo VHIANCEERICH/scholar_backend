@@ -61,6 +61,9 @@ function oauth_success_url_from_state(array $stateData): string
     if ($successUrl === '') {
         $successUrl = oauth_env('GOOGLE_OAUTH_SUCCESS_URL', '');
     }
+    if ($successUrl === '') {
+        $successUrl = 'https://scholar-frontend-yqnn.onrender.com';
+    }
 
     return oauth_is_valid_success_url($successUrl) ? $successUrl : '';
 }

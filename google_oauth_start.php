@@ -87,7 +87,7 @@ $successUrl = trim((string) ($_GET['success_url'] ?? ''));
 if (!oauth_is_valid_success_url($successUrl)) {
     $successUrl = trim((string) oauth_env('GOOGLE_OAUTH_SUCCESS_URL', ''));
     if (!oauth_is_valid_success_url($successUrl)) {
-        $successUrl = '';
+        $successUrl = 'https://scholar-frontend-yqnn.onrender.com';
     }
 }
 
