@@ -166,6 +166,36 @@ try {
 
     $scholarId = $scholarStmt->insert_id;
     $scholarStmt->close();
+
+    if (db_table_exists($conn, 'notifications')) {
+        $notificationMessage = "NEW_SCHOLAR_ACCOUNT:" . $userId . "\n";
+        $notificationMessage .= $username . " has created a scholar account.";
+
+        $adminStmt = db_prepare(
+            $conn,
+            "SELECT user_id FROM users WHERE role = 'admin' AND is_active = 1"
+        );
+        $adminStmt->execute();
+        $admins = $adminStmt->get_result();
+
+        if ($admins instanceof mysqli_result) {
+            $notifyStmt = db_prepare(
+                $conn,
+                'INSERT INTO notifications (user_id, message) VALUES (?, ?)'
+            );
+            while ($admin = $admins->fetch_assoc()) {
+                $adminId = (int) ($admin['user_id'] ?? 0);
+                if ($adminId <= 0) {
+                    continue;
+                }
+                $notifyStmt->bind_param('is', $adminId, $notificationMessage);
+                $notifyStmt->execute();
+            }
+            $notifyStmt->close();
+        }
+        $adminStmt->close();
+    }
+
     $conn->commit();
 
     respond_success([
