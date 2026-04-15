@@ -99,16 +99,3 @@ function oauth_success_url(): string
 {
     return trim((string) backend_env('GOOGLE_OAUTH_SUCCESS_URL', ''));
 }
-
-function oauth_redirect_to_app(array $params, int $status = 302): void
-{
-    $successUrl = oauth_success_url();
-    if ($successUrl === '') {
-        return;
-    }
-
-    $query = http_build_query($params, '', '&', PHP_QUERY_RFC3986);
-    $separator = str_contains($successUrl, '?') ? '&' : '?';
-    header('Location: ' . $successUrl . $separator . $query, true, $status);
-    exit;
-}
