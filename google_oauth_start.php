@@ -1,10 +1,6 @@
 <?php
 declare(strict_types=1);
 
-if (session_status() === PHP_SESSION_NONE) {
-    session_start();
-}
-
 require_once __DIR__ . '/backend_common.php';
 require_once __DIR__ . '/backend_env.php';
 require_once __DIR__ . '/google_oauth_state.php';
@@ -29,6 +25,7 @@ function oauth_current_base_url(): string
     if (str_contains($host, ',')) {
         $host = trim((string) explode(',', $host)[0]);
     }
+
     $scriptDir = str_replace('\\', '/', dirname($_SERVER['SCRIPT_NAME'] ?? ''));
     $scriptDir = rtrim($scriptDir, '/');
 
@@ -37,7 +34,25 @@ function oauth_current_base_url(): string
 
 function oauth_redirect_uri(): string
 {
+    $configured = trim((string) oauth_env('GOOGLE_OAUTH_REDIRECT_URI', ''));
+    if ($configured !== '') {
+        return $configured;
+    }
+
     return oauth_current_base_url() . '/google_oauth_callback.php';
+}
+
+function oauth_is_valid_success_url(string $url): bool
+{
+    $parsed = parse_url($url);
+    if (!is_array($parsed)) {
+        return false;
+    }
+
+    $scheme = strtolower((string) ($parsed['scheme'] ?? ''));
+    $host = strtolower((string) ($parsed['host'] ?? ''));
+
+    return in_array($scheme, ['http', 'https'], true) && $host !== '';
 }
 
 function oauth_html(string $title, string $message, int $status = 200): void
@@ -68,10 +83,19 @@ if ($clientId === '') {
 
 $redirectUri = oauth_redirect_uri();
 
+$successUrl = trim((string) ($_GET['success_url'] ?? ''));
+if (!oauth_is_valid_success_url($successUrl)) {
+    $successUrl = trim((string) oauth_env('GOOGLE_OAUTH_SUCCESS_URL', ''));
+    if (!oauth_is_valid_success_url($successUrl)) {
+        $successUrl = '';
+    }
+}
+
 $state = oauth_state_encode([
     'role' => $role,
     'ts' => time(),
     'nonce' => bin2hex(random_bytes(16)),
+    'success_url' => $successUrl,
 ]);
 
 $params = [
@@ -80,13 +104,8 @@ $params = [
     'response_type' => 'code',
     'scope' => 'openid email profile',
     'state' => $state,
-    'access_type' => 'offline',
-    'prompt' => 'select_account consent',
-    'include_granted_scopes' => 'true',
 ];
 
 $authUrl = 'https://accounts.google.com/o/oauth2/v2/auth?' . http_build_query($params, '', '&', PHP_QUERY_RFC3986);
 header('Location: ' . $authUrl, true, 302);
 exit;
-
-

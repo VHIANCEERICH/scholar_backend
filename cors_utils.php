@@ -30,11 +30,53 @@ if (!function_exists('cors_origin_allowed')) {
             return false;
         }
 
+        $parsedOrigin = parse_url($origin);
+        if (!is_array($parsedOrigin) || !isset($parsedOrigin['scheme'], $parsedOrigin['host'])) {
+            return false;
+        }
+
+        $originScheme = strtolower((string) $parsedOrigin['scheme']);
+        $originHost = strtolower((string) $parsedOrigin['host']);
+        $originPort = isset($parsedOrigin['port']) ? (int) $parsedOrigin['port'] : null;
+
+        // Allow localhost/127.0.0.1 on any port for local web development.
+        if ($originScheme === 'http' && in_array($originHost, ['localhost', '127.0.0.1'], true)) {
+            return true;
+        }
+
         if (in_array('*', $allowedOrigins, true)) {
             return true;
         }
 
-        return in_array($origin, $allowedOrigins, true);
+        foreach ($allowedOrigins as $allowed) {
+            $allowed = trim((string) $allowed);
+            if ($allowed === '') {
+                continue;
+            }
+
+            if ($allowed === $origin) {
+                return true;
+            }
+
+            $parsedAllowed = parse_url($allowed);
+            if (!is_array($parsedAllowed) || !isset($parsedAllowed['scheme'], $parsedAllowed['host'])) {
+                continue;
+            }
+
+            $allowedScheme = strtolower((string) $parsedAllowed['scheme']);
+            $allowedHost = strtolower((string) $parsedAllowed['host']);
+            $allowedPort = isset($parsedAllowed['port']) ? (int) $parsedAllowed['port'] : null;
+
+            $schemeMatches = $originScheme === $allowedScheme;
+            $hostMatches = $originHost === $allowedHost;
+            $portMatches = $allowedPort === null || $originPort === $allowedPort;
+
+            if ($schemeMatches && $hostMatches && $portMatches) {
+                return true;
+            }
+        }
+
+        return false;
     }
 }
 
@@ -44,15 +86,24 @@ if (!function_exists('apply_cors_headers')) {
         array $allowedHeaders = ['Content-Type', 'Authorization', 'X-Requested-With']
     ): void {
         $origin = trim((string) ($_SERVER['HTTP_ORIGIN'] ?? ''));
+        if ($origin === '') {
+            $forwardedOrigin = trim((string) ($_SERVER['HTTP_X_FORWARDED_ORIGIN'] ?? ''));
+            if ($forwardedOrigin !== '') {
+                $origin = $forwardedOrigin;
+            }
+        }
         $allowedOrigins = cors_allowed_origins();
 
-        if (cors_origin_allowed($origin, $allowedOrigins)) {
-            header('Access-Control-Allow-Origin: ' . $origin);
-            header('Vary: Origin');
+        $allowOrigin = '*';
+        if ($origin !== '' && cors_origin_allowed($origin, $allowedOrigins)) {
+            $allowOrigin = $origin;
         }
+        header('Access-Control-Allow-Origin: ' . $allowOrigin);
+        header('Vary: Origin');
 
         header('Access-Control-Allow-Methods: ' . implode(', ', $allowedMethods));
         header('Access-Control-Allow-Headers: ' . implode(', ', $allowedHeaders));
+        header('Access-Control-Max-Age: 86400');
     }
 }
 

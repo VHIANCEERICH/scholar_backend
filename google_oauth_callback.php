@@ -1,10 +1,6 @@
 <?php
 declare(strict_types=1);
 
-if (session_status() === PHP_SESSION_NONE) {
-    session_start();
-}
-
 require_once __DIR__ . '/backend_common.php';
 require_once __DIR__ . '/backend_env.php';
 require_once __DIR__ . '/google_oauth_state.php';
@@ -29,6 +25,7 @@ function oauth_current_base_url(): string
     if (str_contains($host, ',')) {
         $host = trim((string) explode(',', $host)[0]);
     }
+
     $scriptDir = str_replace('\\', '/', dirname($_SERVER['SCRIPT_NAME'] ?? ''));
     $scriptDir = rtrim($scriptDir, '/');
 
@@ -37,7 +34,35 @@ function oauth_current_base_url(): string
 
 function oauth_redirect_uri(): string
 {
+    $configured = trim((string) oauth_env('GOOGLE_OAUTH_REDIRECT_URI', ''));
+    if ($configured !== '') {
+        return $configured;
+    }
+
     return oauth_current_base_url() . '/google_oauth_callback.php';
+}
+
+function oauth_is_valid_success_url(string $url): bool
+{
+    $parsed = parse_url($url);
+    if (!is_array($parsed)) {
+        return false;
+    }
+
+    $scheme = strtolower((string) ($parsed['scheme'] ?? ''));
+    $host = strtolower((string) ($parsed['host'] ?? ''));
+
+    return in_array($scheme, ['http', 'https'], true) && $host !== '';
+}
+
+function oauth_success_url_from_state(array $stateData): string
+{
+    $successUrl = trim((string) ($stateData['success_url'] ?? ''));
+    if ($successUrl === '') {
+        $successUrl = oauth_env('GOOGLE_OAUTH_SUCCESS_URL', '');
+    }
+
+    return oauth_is_valid_success_url($successUrl) ? $successUrl : '';
 }
 
 function oauth_html(string $title, string $message, int $status = 200): void
@@ -167,14 +192,22 @@ function oauth_render_error(string $message, int $status = 400): void
     oauth_html('Google Login Failed', $message, $status);
 }
 
+function oauth_redirect_to_app(string $successUrl, array $params, int $status = 302): bool
+{
+    if (!oauth_is_valid_success_url($successUrl)) {
+        return false;
+    }
+
+    $query = http_build_query($params, '', '&', PHP_QUERY_RFC3986);
+    $separator = str_contains($successUrl, '?') ? '&' : '?';
+    header('Location: ' . $successUrl . $separator . $query, true, $status);
+    exit;
+}
+
 $incomingState = (string) ($_GET['state'] ?? '');
 $incomingCode = (string) ($_GET['code'] ?? '');
 $incomingError = (string) ($_GET['error'] ?? '');
 $stateData = oauth_state_decode($incomingState);
-$role = strtolower(trim((string) ($stateData['role'] ?? ($_GET['role'] ?? 'scholar'))));
-if (!in_array($role, ['admin', 'scholar'], true)) {
-    $role = 'scholar';
-}
 
 if ($incomingError !== '') {
     oauth_render_error('Google returned an error: ' . $incomingError, 400);
@@ -187,6 +220,13 @@ if ($incomingCode === '') {
 if ($stateData === null) {
     oauth_render_error('Invalid OAuth state. Please try again.', 403);
 }
+
+$role = strtolower(trim((string) ($stateData['role'] ?? ($_GET['role'] ?? 'scholar'))));
+if (!in_array($role, ['admin', 'scholar'], true)) {
+    $role = 'scholar';
+}
+
+$successUrl = oauth_success_url_from_state($stateData);
 
 $clientId = oauth_env('GOOGLE_CLIENT_ID', oauth_env('GOOGLE_OAUTH_CLIENT_ID'));
 $clientSecret = oauth_env('GOOGLE_CLIENT_SECRET', oauth_env('GOOGLE_OAUTH_CLIENT_SECRET'));
@@ -247,13 +287,19 @@ $userStmt->close();
 
 if (!$user) {
     if ($role === 'scholar') {
-        oauth_redirect_to_app([
+        if (!oauth_redirect_to_app($successUrl, [
             'status' => 'pending_account',
             'email' => $email,
             'name' => $name !== '' ? $name : $email,
             'role' => $role,
             'google_id' => $googleId,
-        ], 302);
+        ], 302)) {
+            oauth_html(
+                'Google Login Pending',
+                'No local account exists for ' . $email . '. Please return to the app and complete account creation.',
+                200
+            );
+        }
     }
 
     oauth_render_error(
@@ -291,7 +337,7 @@ if ($localRole === 'scholar') {
     $profileStmt->close();
 
     if (!$scholar) {
-        oauth_redirect_to_app([
+        if (!oauth_redirect_to_app($successUrl, [
             'status' => 'pending_account',
             'email' => $email,
             'name' => $displayName,
@@ -299,9 +345,13 @@ if ($localRole === 'scholar') {
             'google_id' => $googleId,
             'user_id' => (int) $user['user_id'],
             'scholarship_category' => '',
-        ], 302);
-
-        oauth_render_error('Scholar profile not found for this account.', 404);
+        ], 302)) {
+            oauth_html(
+                'Google Login Pending',
+                'Scholar profile not found for this account. Please return to the app and complete account creation.',
+                200
+            );
+        }
     }
 
     $displayName = trim(implode(' ', array_filter([
@@ -321,17 +371,6 @@ if ($localRole === 'scholar') {
     ];
 }
 
-$_SESSION['google_oauth_state'] = '';
-$_SESSION['google_oauth_role'] = '';
-$_SESSION['google_oauth_user'] = [
-    'user_id' => (int) $user['user_id'],
-    'email' => $email,
-    'name' => $displayName,
-    'role' => $localRole,
-    'google_id' => $googleId,
-    'profile' => $profileData,
-];
-
 $successParams = array_merge([
     'status' => 'success',
     'user_id' => (int) $user['user_id'],
@@ -340,14 +379,11 @@ $successParams = array_merge([
     'role' => $localRole,
 ], $extra);
 
-oauth_redirect_to_app($successParams, 302);
+if (!oauth_redirect_to_app($successUrl, $successParams, 302)) {
+    $message = 'Signed in successfully as ' . $displayName . ' (' . $email . ').';
+    if (!empty($extra['scholarship_category'])) {
+        $message .= ' Scholar category: ' . $extra['scholarship_category'] . '.';
+    }
 
-$message = 'Signed in successfully as ' . $displayName . ' (' . $email . ').';
-if (!empty($extra['scholarship_category'])) {
-    $message .= ' Scholar category: ' . $extra['scholarship_category'] . '.';
+    oauth_html('Google Login Successful', $message, 200);
 }
-
-oauth_html('Google Login Successful', $message, 200);
-
-
-
