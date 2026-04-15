@@ -68,6 +68,16 @@ function oauth_success_url_from_state(array $stateData): string
     return oauth_is_valid_success_url($successUrl) ? $successUrl : '';
 }
 
+function oauth_frontend_url(): string
+{
+    $url = trim((string) oauth_env('GOOGLE_OAUTH_SUCCESS_URL', ''));
+    if ($url === '') {
+        $url = 'https://scholar-frontend-yqnn.onrender.com';
+    }
+
+    return oauth_is_valid_success_url($url) ? $url : 'https://scholar-frontend-yqnn.onrender.com';
+}
+
 function oauth_html(string $title, string $message, int $status = 200): void
 {
     http_response_code($status);
@@ -230,6 +240,7 @@ if (!in_array($role, ['admin', 'scholar'], true)) {
 }
 
 $successUrl = oauth_success_url_from_state($stateData);
+$frontendUrl = oauth_frontend_url();
 
 $clientId = oauth_env('GOOGLE_CLIENT_ID', oauth_env('GOOGLE_OAUTH_CLIENT_ID'));
 $clientSecret = oauth_env('GOOGLE_CLIENT_SECRET', oauth_env('GOOGLE_OAUTH_CLIENT_SECRET'));
@@ -290,7 +301,7 @@ $userStmt->close();
 
 if (!$user) {
     if ($role === 'scholar') {
-        if (!oauth_redirect_to_app($successUrl, [
+        if (!oauth_redirect_to_app($frontendUrl, [
             'status' => 'pending_account',
             'email' => $email,
             'name' => $name !== '' ? $name : $email,
@@ -340,7 +351,7 @@ if ($localRole === 'scholar') {
     $profileStmt->close();
 
     if (!$scholar) {
-        if (!oauth_redirect_to_app($successUrl, [
+        if (!oauth_redirect_to_app($frontendUrl, [
             'status' => 'pending_account',
             'email' => $email,
             'name' => $displayName,
@@ -383,6 +394,10 @@ $successParams = array_merge([
 ], $extra);
 
 if (!oauth_redirect_to_app($successUrl, $successParams, 302)) {
+    if ($localRole === 'scholar') {
+        oauth_redirect_to_app($frontendUrl, array_merge($successParams, ['status' => 'success']), 302);
+    }
+
     $message = 'Signed in successfully as ' . $displayName . ' (' . $email . ').';
     if (!empty($extra['scholarship_category'])) {
         $message .= ' Scholar category: ' . $extra['scholarship_category'] . '.';
