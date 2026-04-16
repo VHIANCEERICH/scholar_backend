@@ -18,6 +18,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+      SONAR_ORGANIZATION: ${{ secrets.SONAR_ORGANIZATION }}
       SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
     steps:
       - name: Checkout
@@ -61,10 +62,11 @@ jobs:
                 ;;
             esac
 
-            # SonarCloud requires sonar.organization to be set in sonar-project.properties.
+            # SonarCloud requires an organization key. Keep it in a secret so the repo
+            # can still work with self-hosted SonarQube instances that do not use it.
             if [ "${resolved_host}" = "https://sonarcloud.io" ]; then
-              if ! grep -Eq '^[[:space:]]*sonar\.organization[[:space:]]*=' sonar-project.properties; then
-                echo "::error title=Missing sonar.organization::Add sonar.organization=<your_org_key> to sonar-project.properties for SonarCloud analysis."
+              if [ -z "${SONAR_ORGANIZATION}" ]; then
+                echo "::error title=Missing SONAR_ORGANIZATION::Set the repository secret SONAR_ORGANIZATION to your SonarCloud organization key."
                 exit 1
               fi
             fi
@@ -76,6 +78,9 @@ jobs:
       - name: SonarQube Scan
         if: steps.sonar_config.outputs.run_scan == 'true'
         uses: sonarsource/sonarqube-scan-action@fd88b7d7ccbaefd23d8f36f73b59db7a3d246602 # v6.0.0
+        with:
+          args: >-
+            ${{ env.SONAR_HOST_URL == 'https://sonarcloud.io' && format('-Dsonar.organization={0}', env.SONAR_ORGANIZATION) || '' }}
 
       - name: SonarQube Quality Gate
         if: steps.sonar_config.outputs.run_scan == 'true'
