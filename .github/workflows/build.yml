@@ -102,13 +102,13 @@ jobs:
             -X POST "${SONAR_HOST_URL}/api/settings/set" \
             -d "component=${project_key}" \
             -d "key=sonar.leak.period" \
-            -d "value=previous_version"
+            -d "value=30"
 
           curl -sSf -u "${SONAR_TOKEN}:" \
             -X POST "${SONAR_HOST_URL}/api/settings/set" \
             -d "component=${project_key}" \
             -d "key=sonar.leak.period.type" \
-            -d "value=previous_version"
+            -d "value=days"
 
       - name: SonarQube Scan
         if: steps.sonar_config.outputs.run_scan == 'true'
