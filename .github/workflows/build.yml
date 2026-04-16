@@ -66,8 +66,8 @@ jobs:
             # can still work with self-hosted SonarQube instances that do not use it.
             if [ "${resolved_host}" = "https://sonarcloud.io" ]; then
               if [ -z "${SONAR_ORGANIZATION}" ]; then
-                echo "::error title=Missing SONAR_ORGANIZATION::Set the repository secret SONAR_ORGANIZATION to your SonarCloud organization key."
-                exit 1
+                echo "::warning title=Missing SONAR_ORGANIZATION::Skipping SonarCloud scan. Set the repository secret SONAR_ORGANIZATION to enable it."
+                run_scan=false
               fi
             fi
           fi
