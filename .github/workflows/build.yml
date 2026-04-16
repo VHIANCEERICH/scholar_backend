@@ -18,7 +18,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-      SONAR_ORGANIZATION: ${{ secrets.SONAR_ORGANIZATION }}
+      SONAR_ORGANIZATION: VHIANCEERICH
       SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
     steps:
       - name: Checkout
@@ -40,8 +40,8 @@ jobs:
           resolved_host="${SONAR_HOST_URL:-https://sonarcloud.io}"
 
           if [ -z "${SONAR_TOKEN}" ]; then
-            echo "::warning title=Missing SONAR_TOKEN::Skipping SonarQube scan. Set repository secret SONAR_TOKEN to enable it."
-            run_scan=false
+            echo "::error title=Missing SONAR_TOKEN::Set repository secret SONAR_TOKEN to enable SonarCloud analysis."
+            exit 1
           fi
 
           if [ "${run_scan}" = "true" ]; then
@@ -65,10 +65,7 @@ jobs:
             # SonarCloud requires an organization key. Keep it in a secret so the repo
             # can still work with self-hosted SonarQube instances that do not use it.
             if [ "${resolved_host}" = "https://sonarcloud.io" ]; then
-              if [ -z "${SONAR_ORGANIZATION}" ]; then
-                echo "::warning title=Missing SONAR_ORGANIZATION::Skipping SonarCloud scan. Set the repository secret SONAR_ORGANIZATION to enable it."
-                run_scan=false
-              fi
+              echo "Using SonarCloud organization: ${SONAR_ORGANIZATION}"
             fi
           fi
 
@@ -77,7 +74,6 @@ jobs:
 
       - name: SonarQube Scan
         if: steps.sonar_config.outputs.run_scan == 'true'
-        continue-on-error: true
         uses: sonarsource/sonarqube-scan-action@fd88b7d7ccbaefd23d8f36f73b59db7a3d246602 # v6.0.0
         with:
           args: >-
@@ -85,6 +81,5 @@ jobs:
 
       - name: SonarQube Quality Gate
         if: steps.sonar_config.outputs.run_scan == 'true'
-        continue-on-error: true
         uses: sonarsource/sonarqube-quality-gate-action@cf038b0e0cdecfa9e56c198bbb7d21d751d62c3b # v1.2.0
         timeout-minutes: 10
