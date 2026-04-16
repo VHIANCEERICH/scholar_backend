@@ -48,9 +48,7 @@ jobs:
           resolved_host="${SONAR_HOST_URL:-https://sonarcloud.io}"
           echo "Sonar event: ${EVENT_NAME} on ref: ${REF_NAME}"
 
-          if [ "${SONAR_ENABLE}" != "true" ]; then
-            echo "::warning title=Sonar disabled::Skipping SonarCloud scan so the workflow can pass. Set SONAR_ENABLE=true to re-enable it."
-          elif [ -z "${SONAR_TOKEN}" ]; then
+          if [ -z "${SONAR_TOKEN}" ]; then
             echo "::warning title=Missing SONAR_TOKEN::Skipping SonarCloud scan so the workflow can pass."
           elif [ -z "${SONAR_ORGANIZATION}" ]; then
             echo "::warning title=Missing SONAR_ORGANIZATION::Skipping SonarCloud scan so the workflow can pass."
