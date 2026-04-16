@@ -68,4 +68,3 @@ if ($stmt) {
 } else {
     echo json_encode(["status" => "error", "message" => $conn->error]);
 }
-?>
