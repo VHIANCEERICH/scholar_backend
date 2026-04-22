@@ -28,6 +28,39 @@ function approve_ensure_users_google_id_column(mysqli $conn): bool
     return approve_users_has_google_id_column($conn);
 }
 
+function approve_users_role_supports_supervisor(mysqli $conn): bool
+{
+    $result = $conn->query("SHOW COLUMNS FROM users LIKE 'role'");
+    if (!($result instanceof mysqli_result) || $result->num_rows === 0) {
+        return false;
+    }
+
+    $column = $result->fetch_assoc();
+    $type = strtolower(trim((string) ($column['Type'] ?? '')));
+    if ($type === '') {
+        return false;
+    }
+
+    if (str_starts_with($type, 'varchar') || str_starts_with($type, 'text')) {
+        return true;
+    }
+
+    return str_contains($type, "'supervisor'");
+}
+
+function approve_ensure_users_role_supports_supervisor(mysqli $conn): bool
+{
+    if (approve_users_role_supports_supervisor($conn)) {
+        return true;
+    }
+
+    if ($conn->query("ALTER TABLE users MODIFY COLUMN role VARCHAR(20) NOT NULL") === true) {
+        return true;
+    }
+
+    return approve_users_role_supports_supervisor($conn);
+}
+
 require_method('POST');
 ensure_account_requests_table($conn);
 
@@ -162,6 +195,10 @@ try {
         ]);
     }
 
+    if ($role === 'supervisor' && !approve_ensure_users_role_supports_supervisor($conn)) {
+        throw new RuntimeException('Unable to update users.role column for supervisor access.');
+    }
+
     if ($passwordHash === '') {
         throw new RuntimeException('Missing password hash for request');
     }
@@ -260,3 +297,4 @@ try {
     $conn->rollback();
     respond_error($e->getMessage(), 500);
 }
+
