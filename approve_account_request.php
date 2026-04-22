@@ -40,7 +40,7 @@ if ($requestId <= 0) {
 
 $stmt = db_prepare(
     $conn,
-    'SELECT request_id, role, username, email, password_hash, scholarship_category, scholarship_type_label, first_name, middle_name, last_name, course, year_level, status, google_id
+    'SELECT request_id, request_kind, existing_user_id, role, username, email, password_hash, scholarship_category, scholarship_type_label, first_name, middle_name, last_name, course, year_level, status, google_id
      FROM account_requests
      WHERE request_id = ?
      LIMIT 1'
@@ -59,6 +59,8 @@ if (strtolower((string) ($request['status'] ?? '')) !== 'pending') {
 }
 
 $role = strtolower(trim((string) ($request['role'] ?? 'scholar')));
+$requestKind = strtolower(trim((string) ($request['request_kind'] ?? 'new_account')));
+$existingUserId = (int) ($request['existing_user_id'] ?? 0);
 $username = trim((string) ($request['username'] ?? ''));
 $email = trim((string) ($request['email'] ?? ''));
 $passwordHash = trim((string) ($request['password_hash'] ?? ''));
@@ -70,14 +72,89 @@ $course = trim((string) ($request['course'] ?? ''));
 $yearLevel = (int) ($request['year_level'] ?? 1);
 $googleId = trim((string) ($request['google_id'] ?? ''));
 
-if ($passwordHash === '') {
-    respond_error('Missing password hash for request', 500);
-}
-
 $conn->begin_transaction();
 
 try {
     $googleColumnReady = $googleId !== '' ? approve_ensure_users_google_id_column($conn) : false;
+
+    if ($requestKind === 'admin_google_access') {
+        if ($role !== 'admin') {
+            throw new RuntimeException('Only admin access requests can use this approval path.');
+        }
+        if ($existingUserId <= 0) {
+            throw new RuntimeException('Missing linked admin account for this request.');
+        }
+        if ($googleId === '') {
+            throw new RuntimeException('Missing Google account identifier for this request.');
+        }
+        if (!$googleColumnReady) {
+            throw new RuntimeException('Unable to prepare Google linking column.');
+        }
+
+        $existingAdminStmt = db_prepare(
+            $conn,
+            'SELECT user_id, role FROM users WHERE user_id = ? LIMIT 1'
+        );
+        $existingAdminStmt->bind_param('i', $existingUserId);
+        $existingAdminStmt->execute();
+        $existingAdmin = $existingAdminStmt->get_result()?->fetch_assoc();
+        $existingAdminStmt->close();
+
+        if (!$existingAdmin) {
+            throw new RuntimeException('Linked admin account not found.');
+        }
+
+        if (strtolower(trim((string) ($existingAdmin['role'] ?? ''))) !== 'admin') {
+            throw new RuntimeException('Linked account is not an admin account.');
+        }
+
+        $conflictStmt = db_prepare(
+            $conn,
+            'SELECT user_id FROM users WHERE google_id = ? AND user_id <> ? LIMIT 1'
+        );
+        $conflictStmt->bind_param('si', $googleId, $existingUserId);
+        $conflictStmt->execute();
+        $conflict = $conflictStmt->get_result()?->fetch_assoc();
+        $conflictStmt->close();
+
+        if ($conflict) {
+            throw new RuntimeException('This Google account is already linked to another user.');
+        }
+
+        $linkStmt = db_prepare(
+            $conn,
+            'UPDATE users SET google_id = ?, username = ?, email = ? WHERE user_id = ?'
+        );
+        $linkStmt->bind_param('sssi', $googleId, $username, $email, $existingUserId);
+        if (!$linkStmt->execute()) {
+            throw new RuntimeException('Failed to link Google account: ' . $linkStmt->error);
+        }
+        $linkStmt->close();
+
+        $reviewStmt = db_prepare(
+            $conn,
+            'UPDATE account_requests SET status = \'approved\', reviewed_at = NOW(), reviewed_by = 0, review_note = \'\' WHERE request_id = ?'
+        );
+        $reviewStmt->bind_param('i', $requestId);
+        if (!$reviewStmt->execute()) {
+            throw new RuntimeException('Failed to update request: ' . $reviewStmt->error);
+        }
+        $reviewStmt->close();
+
+        $conn->commit();
+
+        respond_success([
+            'message' => 'Admin Google access approved',
+            'request_id' => $requestId,
+            'user_id' => $existingUserId,
+            'scholar_id' => 0,
+            'role' => $role,
+        ]);
+    }
+
+    if ($passwordHash === '') {
+        throw new RuntimeException('Missing password hash for request');
+    }
 
     $existingStmt = db_prepare($conn, 'SELECT user_id FROM users WHERE email = ? LIMIT 1');
     $existingStmt->bind_param('s', $email);

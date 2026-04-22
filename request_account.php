@@ -71,8 +71,8 @@ if ($yearLevel <= 0) {
 $stmt = db_prepare(
     $conn,
     'INSERT INTO account_requests
-     (role, username, email, password_hash, scholarship_category, scholarship_type_label, first_name, middle_name, last_name, course, year_level, status, google_id)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, \'pending\', ?)'
+     (request_kind, existing_user_id, role, username, email, password_hash, scholarship_category, scholarship_type_label, first_name, middle_name, last_name, course, year_level, status, google_id)
+     VALUES (\'new_account\', 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, \'pending\', ?)'
 );
 $stmt->bind_param(
     'ssssssssssis',

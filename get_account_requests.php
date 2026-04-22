@@ -28,6 +28,8 @@ if ($status !== 'all') {
 $sql = "
     SELECT
         request_id,
+        request_kind,
+        existing_user_id,
         role,
         username,
         email,
@@ -59,6 +61,7 @@ $stmt->close();
 
 foreach ($rows as &$row) {
     $row['request_id'] = (int) ($row['request_id'] ?? 0);
+    $row['existing_user_id'] = (int) ($row['existing_user_id'] ?? 0);
     $row['year_level'] = (int) ($row['year_level'] ?? 0);
     $row['reviewed_by'] = (int) ($row['reviewed_by'] ?? 0);
 }

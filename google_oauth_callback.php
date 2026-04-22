@@ -4,6 +4,7 @@ declare(strict_types=1);
 require_once __DIR__ . '/backend_common.php';
 require_once __DIR__ . '/backend_env.php';
 require_once __DIR__ . '/google_oauth_state.php';
+require_once __DIR__ . '/account_request_common.php';
 
 function oauth_users_has_google_id_column(mysqli $conn): bool
 {
@@ -242,6 +243,77 @@ function oauth_redirect_to_app(string $successUrl, array $params, int $status = 
     exit;
 }
 
+function oauth_has_other_active_admins(mysqli $conn, int $excludeUserId = 0): bool
+{
+    $sql = 'SELECT COUNT(*) AS total FROM users WHERE role = \'admin\' AND is_active = 1';
+    if ($excludeUserId > 0) {
+        $sql .= ' AND user_id <> ?';
+        $stmt = db_prepare($conn, $sql);
+        $stmt->bind_param('i', $excludeUserId);
+    } else {
+        $stmt = db_prepare($conn, $sql);
+    }
+    $stmt->execute();
+    $row = $stmt->get_result()?->fetch_assoc();
+    $stmt->close();
+
+    return (int) ($row['total'] ?? 0) > 0;
+}
+
+function oauth_find_pending_admin_google_request(mysqli $conn, int $userId, string $email, string $googleId): ?array
+{
+    ensure_account_requests_table($conn);
+    $stmt = db_prepare(
+        $conn,
+        "SELECT request_id, status
+         FROM account_requests
+         WHERE request_kind = 'admin_google_access'
+           AND existing_user_id = ?
+           AND email = ?
+           AND google_id = ?
+         ORDER BY request_id DESC
+         LIMIT 1"
+    );
+    $stmt->bind_param('iss', $userId, $email, $googleId);
+    $stmt->execute();
+    $row = $stmt->get_result()?->fetch_assoc();
+    $stmt->close();
+
+    return $row ?: null;
+}
+
+function oauth_create_pending_admin_google_request(
+    mysqli $conn,
+    int $userId,
+    string $username,
+    string $email,
+    string $googleId
+): int {
+    ensure_account_requests_table($conn);
+
+    $existing = oauth_find_pending_admin_google_request($conn, $userId, $email, $googleId);
+    if ($existing && strtolower(trim((string) ($existing['status'] ?? ''))) === 'pending') {
+        return (int) ($existing['request_id'] ?? 0);
+    }
+
+    $stmt = db_prepare(
+        $conn,
+        "INSERT INTO account_requests
+         (request_kind, existing_user_id, role, username, email, password_hash, scholarship_category, scholarship_type_label, first_name, middle_name, last_name, course, year_level, status, google_id)
+         VALUES ('admin_google_access', ?, 'admin', ?, ?, '', '', 'Admin Google Access', '', '', '', '', 1, 'pending', ?)"
+    );
+    $stmt->bind_param('isss', $userId, $username, $email, $googleId);
+    if (!$stmt->execute()) {
+        $error = $stmt->error;
+        $stmt->close();
+        throw new RuntimeException('Failed to create admin access request: ' . $error);
+    }
+
+    $requestId = (int) $stmt->insert_id;
+    $stmt->close();
+    return $requestId;
+}
+
 $incomingState = (string) ($_GET['state'] ?? '');
 $incomingCode = (string) ($_GET['code'] ?? '');
 $incomingError = (string) ($_GET['error'] ?? '');
@@ -372,7 +444,49 @@ if ($localRole !== $role) {
     );
 }
 
-if ($googleColumnReady && $googleId !== '') {
+if ($localRole === 'admin' && $googleId !== '') {
+    $storedGoogleId = trim((string) ($user['google_id'] ?? ''));
+    $linkUserId = (int) ($user['user_id'] ?? 0);
+    $isKnownGoogleAdmin = $storedGoogleId !== '' && hash_equals($storedGoogleId, $googleId);
+    $requestedAdminName = trim((string) ($user['username'] ?? ''));
+    if ($requestedAdminName === '') {
+        $requestedAdminName = $name !== '' ? $name : $email;
+    }
+
+    if (!$isKnownGoogleAdmin && oauth_has_other_active_admins($conn, $linkUserId)) {
+        $requestId = oauth_create_pending_admin_google_request($conn, $linkUserId, $requestedAdminName, $email, $googleId);
+        $pendingParams = [
+            'status' => 'pending_admin_access',
+            'role' => 'admin',
+            'email' => $email,
+            'name' => $requestedAdminName,
+            'user_id' => $linkUserId,
+            'request_id' => $requestId,
+            'message' => 'Your Google admin access is waiting for approval from an existing admin.',
+        ];
+
+        if (oauth_redirect_to_app($frontendUrl, $pendingParams, 302)) {
+            return;
+        }
+
+        oauth_html(
+            'Admin Access Pending',
+            'Your Google admin access is waiting for approval from an existing admin. Please try again after they approve the request.',
+            200
+        );
+    }
+
+    if (!$isKnownGoogleAdmin && $googleColumnReady) {
+        $linkStmt = db_prepare(
+            $conn,
+            'UPDATE users SET google_id = ? WHERE user_id = ?'
+        );
+        $linkStmt->bind_param('si', $googleId, $linkUserId);
+        $linkStmt->execute();
+        $linkStmt->close();
+        $user['google_id'] = $googleId;
+    }
+} elseif ($googleColumnReady && $googleId !== '') {
     $storedGoogleId = trim((string) ($user['google_id'] ?? ''));
     if ($storedGoogleId === '' || $storedGoogleId !== $googleId) {
         $linkStmt = db_prepare(

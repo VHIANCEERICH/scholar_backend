@@ -5,38 +5,65 @@ require_once __DIR__ . '/backend_common.php';
 
 function ensure_account_requests_table(mysqli $conn): void
 {
-    if (db_table_exists($conn, 'account_requests')) {
+    if (!db_table_exists($conn, 'account_requests')) {
+        $sql = "
+            CREATE TABLE account_requests (
+                request_id INT AUTO_INCREMENT PRIMARY KEY,
+                request_kind VARCHAR(40) NOT NULL DEFAULT 'new_account',
+                existing_user_id INT NOT NULL DEFAULT 0,
+                role VARCHAR(20) NOT NULL,
+                username VARCHAR(255) NOT NULL,
+                email VARCHAR(255) NOT NULL,
+                password_hash VARCHAR(255) NOT NULL,
+                scholarship_category VARCHAR(64) NOT NULL DEFAULT '',
+                scholarship_type_label VARCHAR(120) NOT NULL DEFAULT '',
+                first_name VARCHAR(120) NOT NULL DEFAULT '',
+                middle_name VARCHAR(120) NOT NULL DEFAULT '',
+                last_name VARCHAR(120) NOT NULL DEFAULT '',
+                course VARCHAR(120) NOT NULL DEFAULT '',
+                year_level INT NOT NULL DEFAULT 1,
+                status VARCHAR(24) NOT NULL DEFAULT 'pending',
+                google_id VARCHAR(120) NOT NULL DEFAULT '',
+                requested_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                reviewed_at TIMESTAMP NULL DEFAULT NULL,
+                reviewed_by INT NOT NULL DEFAULT 0,
+                review_note VARCHAR(255) NOT NULL DEFAULT '',
+                INDEX idx_status_requested (status, requested_at),
+                INDEX idx_email (email),
+                INDEX idx_role (role),
+                INDEX idx_request_kind_status (request_kind, status),
+                INDEX idx_existing_user (existing_user_id)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+        ";
+
+        if (!$conn->query($sql)) {
+            respond_error('Failed to create account_requests table: ' . $conn->error, 500);
+        }
         return;
     }
 
-    $sql = "
-        CREATE TABLE account_requests (
-            request_id INT AUTO_INCREMENT PRIMARY KEY,
-            role VARCHAR(20) NOT NULL,
-            username VARCHAR(255) NOT NULL,
-            email VARCHAR(255) NOT NULL,
-            password_hash VARCHAR(255) NOT NULL,
-            scholarship_category VARCHAR(64) NOT NULL DEFAULT '',
-            scholarship_type_label VARCHAR(120) NOT NULL DEFAULT '',
-            first_name VARCHAR(120) NOT NULL DEFAULT '',
-            middle_name VARCHAR(120) NOT NULL DEFAULT '',
-            last_name VARCHAR(120) NOT NULL DEFAULT '',
-            course VARCHAR(120) NOT NULL DEFAULT '',
-            year_level INT NOT NULL DEFAULT 1,
-            status VARCHAR(24) NOT NULL DEFAULT 'pending',
-            google_id VARCHAR(120) NOT NULL DEFAULT '',
-            requested_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            reviewed_at TIMESTAMP NULL DEFAULT NULL,
-            reviewed_by INT NOT NULL DEFAULT 0,
-            review_note VARCHAR(255) NOT NULL DEFAULT '',
-            INDEX idx_status_requested (status, requested_at),
-            INDEX idx_email (email),
-            INDEX idx_role (role)
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-    ";
+    $columns = [];
+    $result = $conn->query('SHOW COLUMNS FROM account_requests');
+    if ($result instanceof mysqli_result) {
+        while ($row = $result->fetch_assoc()) {
+            $name = strtolower((string) ($row['Field'] ?? ''));
+            if ($name !== '') {
+                $columns[$name] = true;
+            }
+        }
+        $result->close();
+    }
 
-    if (!$conn->query($sql)) {
-        respond_error('Failed to create account_requests table: ' . $conn->error, 500);
+    if (!isset($columns['request_kind'])) {
+        if (!$conn->query("ALTER TABLE account_requests ADD COLUMN request_kind VARCHAR(40) NOT NULL DEFAULT 'new_account' AFTER request_id")) {
+            respond_error('Failed to add request_kind column: ' . $conn->error, 500);
+        }
+    }
+
+    if (!isset($columns['existing_user_id'])) {
+        if (!$conn->query("ALTER TABLE account_requests ADD COLUMN existing_user_id INT NOT NULL DEFAULT 0 AFTER request_kind")) {
+            respond_error('Failed to add existing_user_id column: ' . $conn->error, 500);
+        }
     }
 }
 
@@ -107,4 +134,14 @@ function account_request_pending_count(mysqli $conn): int
     $row = $stmt->get_result()?->fetch_assoc();
     $stmt->close();
     return (int) ($row['total'] ?? 0);
+}
+
+function account_request_kind_label(string $requestKind, string $role): string
+{
+    $requestKind = strtolower(trim($requestKind));
+    if ($requestKind === 'admin_google_access') {
+        return 'Admin Google Access';
+    }
+
+    return account_request_role_label($role);
 }
