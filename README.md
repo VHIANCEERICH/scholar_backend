@@ -54,6 +54,11 @@ Set these environment variables:
 - `GOOGLE_CLIENT_SECRET`
 - `GOOGLE_OAUTH_REDIRECT_URI`
 - `GOOGLE_OAUTH_SUCCESS_URL` if you want the callback to redirect somewhere after login
+- `CORS_ALLOWED_ORIGINS`
+
+For this frontend/backend pair, set:
+
+- `CORS_ALLOWED_ORIGINS=https://scholar-frontend-yqnn.onrender.com`
 
 Render should run the service as a Web Service that listens on `$PORT`. The included Dockerfile now starts the PHP built-in server with `router.php`, which is the simplest way to serve these endpoints on Render.
 

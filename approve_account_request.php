@@ -3,6 +3,31 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/account_request_common.php';
 
+function approve_users_has_google_id_column(mysqli $conn): bool
+{
+    static $hasColumn = null;
+    if ($hasColumn !== null) {
+        return $hasColumn;
+    }
+
+    $result = $conn->query("SHOW COLUMNS FROM users LIKE 'google_id'");
+    $hasColumn = $result instanceof mysqli_result && $result->num_rows > 0;
+    return $hasColumn;
+}
+
+function approve_ensure_users_google_id_column(mysqli $conn): bool
+{
+    if (approve_users_has_google_id_column($conn)) {
+        return true;
+    }
+
+    if ($conn->query("ALTER TABLE users ADD COLUMN google_id VARCHAR(191) NOT NULL DEFAULT '' AFTER email") === true) {
+        return true;
+    }
+
+    return approve_users_has_google_id_column($conn);
+}
+
 require_method('POST');
 ensure_account_requests_table($conn);
 
@@ -43,6 +68,7 @@ $middleName = trim((string) ($request['middle_name'] ?? ''));
 $lastName = trim((string) ($request['last_name'] ?? ''));
 $course = trim((string) ($request['course'] ?? ''));
 $yearLevel = (int) ($request['year_level'] ?? 1);
+$googleId = trim((string) ($request['google_id'] ?? ''));
 
 if ($passwordHash === '') {
     respond_error('Missing password hash for request', 500);
@@ -51,6 +77,8 @@ if ($passwordHash === '') {
 $conn->begin_transaction();
 
 try {
+    $googleColumnReady = $googleId !== '' ? approve_ensure_users_google_id_column($conn) : false;
+
     $existingStmt = db_prepare($conn, 'SELECT user_id FROM users WHERE email = ? LIMIT 1');
     $existingStmt->bind_param('s', $email);
     $existingStmt->execute();
@@ -61,12 +89,20 @@ try {
         throw new RuntimeException('A user with this email already exists.');
     }
 
-    $userStmt = db_prepare(
-        $conn,
-        'INSERT INTO users (username, email, password_hash, password, role, is_active) VALUES (?, ?, ?, ?, ?, 1)'
-    );
     $legacyPassword = $passwordHash;
-    $userStmt->bind_param('sssss', $username, $email, $passwordHash, $legacyPassword, $role);
+    if ($googleColumnReady) {
+        $userStmt = db_prepare(
+            $conn,
+            'INSERT INTO users (username, email, google_id, password_hash, password, role, is_active) VALUES (?, ?, ?, ?, ?, ?, 1)'
+        );
+        $userStmt->bind_param('ssssss', $username, $email, $googleId, $passwordHash, $legacyPassword, $role);
+    } else {
+        $userStmt = db_prepare(
+            $conn,
+            'INSERT INTO users (username, email, password_hash, password, role, is_active) VALUES (?, ?, ?, ?, ?, 1)'
+        );
+        $userStmt->bind_param('sssss', $username, $email, $passwordHash, $legacyPassword, $role);
+    }
     if (!$userStmt->execute()) {
         throw new RuntimeException('Failed to create user: ' . $userStmt->error);
     }

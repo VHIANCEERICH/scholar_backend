@@ -5,6 +5,31 @@ require_once __DIR__ . '/backend_common.php';
 require_once __DIR__ . '/backend_env.php';
 require_once __DIR__ . '/google_oauth_state.php';
 
+function oauth_users_has_google_id_column(mysqli $conn): bool
+{
+    static $hasColumn = null;
+    if ($hasColumn !== null) {
+        return $hasColumn;
+    }
+
+    $result = $conn->query("SHOW COLUMNS FROM users LIKE 'google_id'");
+    $hasColumn = $result instanceof mysqli_result && $result->num_rows > 0;
+    return $hasColumn;
+}
+
+function oauth_ensure_users_google_id_column(mysqli $conn): bool
+{
+    if (oauth_users_has_google_id_column($conn)) {
+        return true;
+    }
+
+    if ($conn->query("ALTER TABLE users ADD COLUMN google_id VARCHAR(191) NOT NULL DEFAULT '' AFTER email") === true) {
+        return true;
+    }
+
+    return oauth_users_has_google_id_column($conn);
+}
+
 function oauth_env(string $name, string $default = ''): string
 {
     return backend_env($name, $default);
@@ -59,7 +84,7 @@ function oauth_success_url_from_state(array $stateData): string
 {
     $successUrl = trim((string) ($stateData['success_url'] ?? ''));
     if ($successUrl === '') {
-        $successUrl = oauth_env('GOOGLE_OAUTH_SUCCESS_URL', '');
+        $successUrl = oauth_env('GOOGLE_OAUTH_SUCCESS_URL', oauth_env('GOOGLE_OAUTH_SUCCESS_URI', ''));
     }
     if ($successUrl === '') {
         $successUrl = 'https://scholar-frontend-yqnn.onrender.com';
@@ -70,7 +95,7 @@ function oauth_success_url_from_state(array $stateData): string
 
 function oauth_frontend_url(): string
 {
-    $url = trim((string) oauth_env('GOOGLE_OAUTH_SUCCESS_URL', ''));
+    $url = trim((string) oauth_env('GOOGLE_OAUTH_SUCCESS_URL', oauth_env('GOOGLE_OAUTH_SUCCESS_URI', '')));
     if ($url === '') {
         $url = 'https://scholar-frontend-yqnn.onrender.com';
     }
@@ -290,14 +315,30 @@ if ($email === '') {
     oauth_render_error('Google did not return an email address for this account.', 500);
 }
 
-$userStmt = db_prepare(
-    $conn,
-    'SELECT user_id, username, email, role, is_active FROM users WHERE email = ? LIMIT 1'
-);
-$userStmt->bind_param('s', $email);
-$userStmt->execute();
-$user = $userStmt->get_result()?->fetch_assoc();
-$userStmt->close();
+$googleColumnReady = $googleId !== '' ? oauth_ensure_users_google_id_column($conn) : false;
+$user = null;
+
+if ($googleColumnReady && $googleId !== '') {
+    $userStmt = db_prepare(
+        $conn,
+        'SELECT user_id, username, email, role, is_active, google_id FROM users WHERE google_id = ? LIMIT 1'
+    );
+    $userStmt->bind_param('s', $googleId);
+    $userStmt->execute();
+    $user = $userStmt->get_result()?->fetch_assoc();
+    $userStmt->close();
+}
+
+if (!$user) {
+    $selectSql = $googleColumnReady
+        ? 'SELECT user_id, username, email, role, is_active, google_id FROM users WHERE email = ? LIMIT 1'
+        : 'SELECT user_id, username, email, role, is_active FROM users WHERE email = ? LIMIT 1';
+    $userStmt = db_prepare($conn, $selectSql);
+    $userStmt->bind_param('s', $email);
+    $userStmt->execute();
+    $user = $userStmt->get_result()?->fetch_assoc();
+    $userStmt->close();
+}
 
 if (!$user) {
     $pendingParams = [
@@ -329,6 +370,21 @@ if ($localRole !== $role) {
         'You signed in as a ' . $role . ' account, but this email is registered as ' . ($localRole !== '' ? $localRole : 'unknown') . '.',
         403
     );
+}
+
+if ($googleColumnReady && $googleId !== '') {
+    $storedGoogleId = trim((string) ($user['google_id'] ?? ''));
+    if ($storedGoogleId === '' || $storedGoogleId !== $googleId) {
+        $linkStmt = db_prepare(
+            $conn,
+            'UPDATE users SET google_id = ? WHERE user_id = ?'
+        );
+        $linkUserId = (int) ($user['user_id'] ?? 0);
+        $linkStmt->bind_param('si', $googleId, $linkUserId);
+        $linkStmt->execute();
+        $linkStmt->close();
+        $user['google_id'] = $googleId;
+    }
 }
 
 $displayName = trim((string) ($user['username'] ?? ''));

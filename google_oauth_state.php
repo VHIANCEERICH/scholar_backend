@@ -107,5 +107,10 @@ function oauth_state_validate_payload($payload): ?array
 
 function oauth_success_url(): string
 {
-    return trim((string) backend_env('GOOGLE_OAUTH_SUCCESS_URL', ''));
+    $url = trim((string) backend_env('GOOGLE_OAUTH_SUCCESS_URL', ''));
+    if ($url !== '') {
+        return $url;
+    }
+
+    return trim((string) backend_env('GOOGLE_OAUTH_SUCCESS_URI', ''));
 }
