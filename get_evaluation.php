@@ -3,9 +3,25 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/backend_common.php';
 
-if (!db_table_exists($conn, 'evaluations')) {
-    respond_error('Evaluations module is unavailable because the evaluations table does not exist', 500);
+function ensure_evaluations_table(mysqli $conn): void
+{
+    if (!db_table_exists($conn, 'evaluations')) {
+        respond_error('Evaluations module is unavailable because the evaluations table does not exist', 500);
+    }
+
+    $result = $conn->query("SHOW COLUMNS FROM evaluations LIKE 'supervisor_user_id'");
+    $hasColumn = $result instanceof mysqli_result && $result->num_rows > 0;
+    if ($result instanceof mysqli_result) {
+        $result->close();
+    }
+    if (!$hasColumn) {
+        if (!$conn->query("ALTER TABLE evaluations ADD COLUMN supervisor_user_id INT NOT NULL DEFAULT 0 AFTER program_type")) {
+            respond_error('Failed to add supervisor_user_id column: ' . $conn->error, 500);
+        }
+    }
 }
+
+ensure_evaluations_table($conn);
 
 $evaluationId = (int) ($_GET['evaluation_id'] ?? request_value('evaluation_id', 0));
 if ($evaluationId <= 0) {
@@ -19,6 +35,7 @@ $stmt = db_prepare(
         e.evaluation_id,
         e.scholar_id,
         e.program_type,
+        e.supervisor_user_id,
         e.course_year,
         e.assigned_area,
         e.supervisor_name,

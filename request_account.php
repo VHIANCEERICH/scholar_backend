@@ -21,7 +21,7 @@ if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
     respond_error('Invalid email format', 422);
 }
 
-if (!in_array($role, ['admin', 'scholar'], true)) {
+if (!in_array($role, ['admin', 'scholar', 'supervisor'], true)) {
     respond_error('Invalid role selected', 422);
 }
 
@@ -29,7 +29,7 @@ if (strlen($plainPassword) < 8) {
     respond_error('Password must be at least 8 characters.', 422);
 }
 
-if ($scholarshipTypeLabel === '' && $role === 'scholar') {
+if ($scholarshipTypeLabel === '') {
     $scholarshipTypeLabel = account_request_role_label($role);
 }
 

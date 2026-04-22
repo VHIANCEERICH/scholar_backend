@@ -54,8 +54,18 @@ if (!$request) {
     respond_error('Account request not found', 404);
 }
 
-if (strtolower((string) ($request['status'] ?? '')) !== 'pending') {
-    respond_error('This request has already been processed.', 409);
+$requestStatus = strtolower(trim((string) ($request['status'] ?? '')));
+if ($requestStatus !== 'pending') {
+    $message = $requestStatus === 'approved'
+        ? 'This request was already approved.'
+        : 'This request has already been processed.';
+
+    respond_success([
+        'message' => $message,
+        'request_id' => $requestId,
+        'status' => $requestStatus,
+        'already_processed' => true,
+    ]);
 }
 
 $role = strtolower(trim((string) ($request['role'] ?? 'scholar')));

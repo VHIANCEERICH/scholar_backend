@@ -69,7 +69,14 @@ function ensure_account_requests_table(mysqli $conn): void
 
 function account_request_role_label(string $role): string
 {
-    return strtolower(trim($role)) === 'admin' ? 'Admin' : 'Scholar';
+    $normalized = strtolower(trim($role));
+    if ($normalized === 'admin') {
+        return 'Admin';
+    }
+    if ($normalized === 'supervisor') {
+        return 'Supervisor';
+    }
+    return 'Scholar';
 }
 
 function account_request_normalize_scholarship_category(string $value): string
