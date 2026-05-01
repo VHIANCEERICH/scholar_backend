@@ -15,6 +15,14 @@ $offset = max(0, $offset);
 
 header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
 
+if (!isset($conn) || !($conn instanceof mysqli)) {
+    require_once __DIR__ . '/connection.php';
+}
+
+if (!isset($conn) || !($conn instanceof mysqli)) {
+    respond_error('Database connection is not available', 500);
+}
+
 $hasArchivedColumn = false;
 try {
     $result = $conn->query("SHOW COLUMNS FROM notifications LIKE 'archived'");
