@@ -48,6 +48,7 @@ $runUpdate = static function (string $typeValue) use (
 };
 
 $result = $runUpdate($academicType);
+$academicTypeWarning = '';
 
 if (
     !$result['ok']
@@ -62,15 +63,46 @@ if (
     }
 }
 
+if (
+    !$result['ok']
+    && $academicType !== ''
+    && str_contains(strtolower((string) $result['error']), 'academic_type')
+    && str_contains(strtolower((string) $result['error']), 'data truncated')
+) {
+    $stmt = db_prepare(
+        $conn,
+        'UPDATE scholars
+         SET academic_benefit = ?,
+             academic_gwa_requirement = ?,
+             monthly_stipend = ?
+         WHERE user_id = ?'
+    );
+    $stmt->bind_param('ssdi', $academicBenefit, $academicGwaRequirement, $monthlyStipend, $userId);
+    $ok = $stmt->execute();
+    $result = [
+        'ok' => $ok,
+        'error' => $stmt->error,
+    ];
+    $stmt->close();
+
+    if ($result['ok']) {
+        $academicTypeWarning = 'Academic type was not updated because the production database rejected that value format.';
+    }
+}
+
 if (!$result['ok']) {
     respond_error('Failed to update academic details: ' . $result['error'], 500);
 }
 
-respond_success([
+ $payload = [
     'message' => 'Academic details updated successfully',
     'user_id' => $userId,
     'academic_type' => $academicType,
     'academic_benefit' => $academicBenefit,
     'academic_gwa_requirement' => $academicGwaRequirement,
     'monthly_stipend' => $monthlyStipend,
-]);
+];
+if ($academicTypeWarning !== '') {
+    $payload['warning'] = $academicTypeWarning;
+}
+respond_success($payload);

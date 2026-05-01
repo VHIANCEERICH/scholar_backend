@@ -186,6 +186,7 @@ $runUpdate = static function (array $statementValues) use ($conn, $sql, $types):
 };
 
 $result = $runUpdate($values);
+$academicTypeWarning = '';
 
 if (
     !$result['ok']
@@ -205,6 +206,44 @@ if (
         $values = array_map(static fn (array $item) => $item[2], $assignments);
         $values[] = $userId;
         $result = $runUpdate($values);
+    }
+}
+
+if (
+    !$result['ok']
+    && $academicType !== ''
+    && array_key_exists('academic_type', $data)
+    && str_contains(strtolower((string) $result['error']), 'academic_type')
+    && str_contains(strtolower((string) $result['error']), 'data truncated')
+) {
+    $filteredAssignments = array_values(array_filter(
+        $assignments,
+        static fn (array $assignment): bool => $assignment[0] !== 'academic_type = ?'
+    ));
+
+    if (count($filteredAssignments) !== count($assignments)) {
+        $filteredSql = 'UPDATE scholars SET ' . implode(",\n         ", array_column($filteredAssignments, 0)) . ' WHERE user_id = ?';
+        $filteredTypes = implode('', array_column($filteredAssignments, 1)) . 'i';
+        $filteredValues = array_map(static fn (array $item) => $item[2], $filteredAssignments);
+        $filteredValues[] = $userId;
+
+        $runFilteredUpdate = static function (string $sql, string $types, array $statementValues) use ($conn): array {
+            $stmt = db_prepare($conn, $sql);
+            $stmt->bind_param($types, ...$statementValues);
+            $ok = $stmt->execute();
+            $fallbackResult = [
+                'ok' => $ok,
+                'error' => $stmt->error,
+                'affected_rows' => $stmt->affected_rows,
+            ];
+            $stmt->close();
+            return $fallbackResult;
+        };
+
+        $result = $runFilteredUpdate($filteredSql, $filteredTypes, $filteredValues);
+        if ($result['ok']) {
+            $academicTypeWarning = 'Academic type was not updated because the production database rejected that value format.';
+        }
     }
 }
 
@@ -251,7 +290,11 @@ if ($scholarshipStatus !== '' && $hasScholarshipStatus) {
     }
 }
 
-respond_success([
+ $payload = [
     'message' => 'Profile updated successfully',
     'user_id' => $userId,
-]);
+];
+if ($academicTypeWarning !== '') {
+    $payload['warning'] = $academicTypeWarning;
+}
+respond_success($payload);
