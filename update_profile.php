@@ -91,36 +91,42 @@ $assignments = [
     ['course = ?', 's', $course],
     ['year_level = ?', 'i', $yearLevel],
     ['assigned_area = ?', 's', $assignedArea],
-    ['academic_type = ?', 's', $academicType],
-    ['sport_type = ?', 's', $sportType],
-    ['gift_type = ?', 's', $giftType],
 ];
 
-if ($hasAcademicBenefit) {
+if (array_key_exists('academic_type', $data)) {
+    $assignments[] = ['academic_type = ?', 's', $academicType];
+}
+if (array_key_exists('sport_type', $data)) {
+    $assignments[] = ['sport_type = ?', 's', $sportType];
+}
+if (array_key_exists('gift_type', $data)) {
+    $assignments[] = ['gift_type = ?', 's', $giftType];
+}
+if ($hasAcademicBenefit && array_key_exists('academic_benefit', $data)) {
     $assignments[] = ['academic_benefit = ?', 's', $academicBenefit];
 }
-if ($hasAcademicGwaRequirement) {
+if ($hasAcademicGwaRequirement && array_key_exists('academic_gwa_requirement', $data)) {
     $assignments[] = ['academic_gwa_requirement = ?', 's', $academicGwaRequirement];
 }
-if ($hasMonthlyStipend) {
+if ($hasMonthlyStipend && array_key_exists('monthly_stipend', $data)) {
     $assignments[] = ['monthly_stipend = ?', 'd', $monthlyStipend];
 }
-if ($hasHeadCoach) {
+if ($hasHeadCoach && array_key_exists('head_coach', $data)) {
     $assignments[] = ['head_coach = ?', 's', $headCoach];
 }
-if ($hasTrainingSchedule) {
+if ($hasTrainingSchedule && array_key_exists('training_schedule', $data)) {
     $assignments[] = ['training_schedule = ?', 's', $trainingSchedule];
 }
-if ($hasGameSchedule) {
+if ($hasGameSchedule && array_key_exists('game_schedule', $data)) {
     $assignments[] = ['game_schedule = ?', 's', $gameSchedule];
 }
-if ($hasGrantCoverage) {
+if ($hasGrantCoverage && array_key_exists('grant_coverage', $data)) {
     $assignments[] = ['grant_coverage = ?', 's', $grantCoverage];
 }
-if ($hasRetentionGwa) {
+if ($hasRetentionGwa && (array_key_exists('retention_gwa', $data) || array_key_exists('gpa', $data))) {
     $assignments[] = ['retention_gwa = ?', 's', $retentionGwa];
 }
-if ($hasScholarshipStatus) {
+if ($hasScholarshipStatus && array_key_exists('scholarship_status', $data)) {
     $assignments[] = ['scholarship_status = ?', 's', $scholarshipStatus];
 }
 
