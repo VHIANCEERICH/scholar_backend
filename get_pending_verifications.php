@@ -1,4 +1,4 @@
-﻿<?php
+<?php
 declare(strict_types=1);
 
 require_once __DIR__ . '/backend_common.php';
@@ -56,6 +56,14 @@ $sql = "
     END, s.upload_date DESC
     LIMIT ? OFFSET ?
 ";
+
+if (!isset($conn) || !($conn instanceof mysqli)) {
+    require_once __DIR__ . '/connection.php';
+}
+
+if (!isset($conn) || !($conn instanceof mysqli)) {
+    respond_error('Database connection is not available', 500);
+}
 
 $stmt = db_prepare($conn, $sql);
 $stmt->bind_param('ii', $limit, $offset);
