@@ -42,18 +42,19 @@ $sql = "
         sc.first_name,
         sc.middle_name,
         sc.last_name,
-        r.requirement_name
+        r.requirement_name,
+        CASE
+            WHEN s.status = 'pending' THEN 0
+            WHEN s.status = 'approved' THEN 1
+            WHEN s.status = 'rejected' THEN 2
+            ELSE 3
+        END AS status_sort
     FROM submissions s
     LEFT JOIN applications a ON a.application_id = s.application_id
     LEFT JOIN scholars sc ON sc.scholar_id = a.scholar_id
     LEFT JOIN requirements r ON r.requirement_id = s.requirement_id
-    WHERE LOWER(TRIM(COALESCE(s.status, ''))) IN ('pending', 'approved', 'rejected')
-    ORDER BY CASE LOWER(TRIM(COALESCE(s.status, '')))
-        WHEN 'pending' THEN 0
-        WHEN 'approved' THEN 1
-        WHEN 'rejected' THEN 2
-        ELSE 3
-    END, s.upload_date DESC
+    WHERE s.status IN ('pending', 'approved', 'rejected')
+    ORDER BY status_sort, s.upload_date DESC
     LIMIT ? OFFSET ?
 ";
 
@@ -78,6 +79,7 @@ foreach ($rows as $row) {
         : null;
 
     $rawRemarks = (string) ($row['remarks'] ?? '');
+    $status = (string) ($row['status'] ?? '');
     $markerDocType = extract_doc_type_marker($rawRemarks);
 
     $documentType = '';
@@ -124,8 +126,8 @@ foreach ($rows as $row) {
         'requirement_id' => $requirementId,
         'file_path' => $row['file_path'],
         'image_url' => make_public_file_url((string) $row['file_path']),
-        'status' => $row['status'],
-        'admin_status' => ucfirst((string) $row['status']),
+        'status' => $status,
+        'admin_status' => ucfirst($status),
         'upload_date' => $row['upload_date'],
         'submitted_at' => $submittedAt,
         'remarks' => strip_doc_type_marker($rawRemarks),

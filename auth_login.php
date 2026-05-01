@@ -46,7 +46,7 @@ if (!$isValid) {
 }
 
 $extra = [];
-if (($user['role'] ?? '') === 'scholar' && db_table_exists($conn, 'scholars')) {
+if (($user['role'] ?? '') === 'scholar') {
     $profileStmt = db_prepare(
         $conn,
         'SELECT scholar_id, scholarship_category, academic_type, sport_type, gift_type, first_name, last_name
@@ -60,18 +60,8 @@ if (($user['role'] ?? '') === 'scholar' && db_table_exists($conn, 'scholars')) {
     if ($profile) {
         $profileCategory = trim((string) ($profile['scholarship_category'] ?? ''));
         if ($profileCategory === '' && $requestedScholarshipCategory !== '') {
+            // Return the caller's requested category immediately without turning login into a write request.
             $profileCategory = $requestedScholarshipCategory;
-
-            $updateStmt = db_prepare(
-                $conn,
-                'UPDATE scholars SET scholarship_category = ? WHERE scholar_id = ?'
-            );
-            $scholarId = (int) ($profile['scholar_id'] ?? 0);
-            if ($scholarId > 0) {
-                $updateStmt->bind_param('si', $profileCategory, $scholarId);
-                $updateStmt->execute();
-            }
-            $updateStmt->close();
         }
 
         $extra = [
