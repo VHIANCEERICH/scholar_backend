@@ -1,25 +1,67 @@
 <?php
 declare(strict_types=1);
 
+require_once __DIR__ . '/backend_env.php';
+
 if (!function_exists('cors_allowed_origins')) {
-    function cors_allowed_origins(): array
+    function cors_collect_origin_candidates(array $values): array
     {
-        $configured = trim((string) (getenv('CORS_ALLOWED_ORIGINS') ?: ''));
-        if ($configured !== '') {
-            $parts = array_map('trim', explode(',', $configured));
-            $parts = array_values(array_filter($parts, static fn (string $origin): bool => $origin !== ''));
-            return array_unique($parts);
+        $origins = [];
+
+        foreach ($values as $value) {
+            $value = trim((string) $value);
+            if ($value === '') {
+                continue;
+            }
+
+            $parts = array_map('trim', explode(',', $value));
+            foreach ($parts as $part) {
+                if ($part === '') {
+                    continue;
+                }
+
+                $parsed = parse_url($part);
+                if (!is_array($parsed) || !isset($parsed['scheme'], $parsed['host'])) {
+                    continue;
+                }
+
+                $origin = strtolower((string) $parsed['scheme']) . '://' . strtolower((string) $parsed['host']);
+                if (isset($parsed['port'])) {
+                    $origin .= ':' . (int) $parsed['port'];
+                }
+
+                $origins[] = $origin;
+            }
         }
 
-        // Safe dev defaults; production should set CORS_ALLOWED_ORIGINS explicitly.
-        return [
+        return array_values(array_unique($origins));
+    }
+
+    function cors_allowed_origins(): array
+    {
+        $configured = cors_collect_origin_candidates([
+            backend_env('CORS_ALLOWED_ORIGINS'),
+            backend_env('GOOGLE_OAUTH_SUCCESS_URL'),
+            backend_env('GOOGLE_OAUTH_SUCCESS_URI'),
+            backend_env('PUBLIC_BASE_URL'),
+            backend_env('APP_PUBLIC_BASE_URL'),
+            backend_env('FRONTEND_URL'),
+            backend_env('FRONTEND_BASE_URL'),
+        ]);
+
+        // Safe defaults for local development and the current Render deployment.
+        $defaults = [
             'http://localhost',
             'http://127.0.0.1',
             'http://localhost:3000',
             'http://127.0.0.1:3000',
             'http://localhost:5173',
             'http://127.0.0.1:5173',
+            'https://scholar-frontend-yqnn.onrender.com',
+            'https://scholar-backend-1tso.onrender.com',
         ];
+
+        return array_values(array_unique(array_merge($configured, $defaults)));
     }
 }
 
@@ -45,6 +87,10 @@ if (!function_exists('cors_origin_allowed')) {
         }
 
         if (in_array('*', $allowedOrigins, true)) {
+            return true;
+        }
+
+        if ($originScheme === 'https' && str_ends_with($originHost, '.onrender.com')) {
             return true;
         }
 

@@ -1,12 +1,35 @@
 <?php
 declare(strict_types=1);
 
-if (session_status() === PHP_SESSION_NONE) {
-    session_start();
-}
-
 require_once __DIR__ . '/backend_common.php';
 require_once __DIR__ . '/backend_env.php';
+require_once __DIR__ . '/google_oauth_state.php';
+require_once __DIR__ . '/account_request_common.php';
+
+function oauth_users_has_google_id_column(mysqli $conn): bool
+{
+    static $hasColumn = null;
+    if ($hasColumn !== null) {
+        return $hasColumn;
+    }
+
+    $result = $conn->query("SHOW COLUMNS FROM users LIKE 'google_id'");
+    $hasColumn = $result instanceof mysqli_result && $result->num_rows > 0;
+    return $hasColumn;
+}
+
+function oauth_ensure_users_google_id_column(mysqli $conn): bool
+{
+    if (oauth_users_has_google_id_column($conn)) {
+        return true;
+    }
+
+    if ($conn->query("ALTER TABLE users ADD COLUMN google_id VARCHAR(191) NOT NULL DEFAULT '' AFTER email") === true) {
+        return true;
+    }
+
+    return oauth_users_has_google_id_column($conn);
+}
 
 function oauth_env(string $name, string $default = ''): string
 {
@@ -15,12 +38,34 @@ function oauth_env(string $name, string $default = ''): string
 
 function oauth_current_base_url(): string
 {
-    $scheme = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
-    $host = $_SERVER['HTTP_HOST'] ?? 'localhost';
+    $forwardedProto = strtolower(trim((string) ($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '')));
+    if ($forwardedProto !== '') {
+        $forwardedProto = trim((string) explode(',', $forwardedProto)[0]);
+    }
+
+    $scheme = ($forwardedProto === 'https' || (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off'))
+        ? 'https'
+        : 'http';
+
+    $host = (string) ($_SERVER['HTTP_X_FORWARDED_HOST'] ?? $_SERVER['HTTP_HOST'] ?? 'localhost');
+    if (str_contains($host, ',')) {
+        $host = trim((string) explode(',', $host)[0]);
+    }
+
     $scriptDir = str_replace('\\', '/', dirname($_SERVER['SCRIPT_NAME'] ?? ''));
     $scriptDir = rtrim($scriptDir, '/');
 
     return $scheme . '://' . $host . ($scriptDir !== '' ? $scriptDir : '');
+}
+
+function oauth_redirect_uri(): string
+{
+    $configured = trim((string) oauth_env('GOOGLE_OAUTH_REDIRECT_URI', ''));
+    if ($configured !== '') {
+        return $configured;
+    }
+
+    return oauth_current_base_url() . '/google_oauth_callback.php';
 }
 
 function oauth_is_valid_success_url(string $url): bool
@@ -33,11 +78,30 @@ function oauth_is_valid_success_url(string $url): bool
     $scheme = strtolower((string) ($parsed['scheme'] ?? ''));
     $host = strtolower((string) ($parsed['host'] ?? ''));
 
-    if (!in_array($scheme, ['http', 'https'], true) || $host === '') {
-        return false;
+    return in_array($scheme, ['http', 'https'], true) && $host !== '';
+}
+
+function oauth_success_url_from_state(array $stateData): string
+{
+    $successUrl = trim((string) ($stateData['success_url'] ?? ''));
+    if ($successUrl === '') {
+        $successUrl = oauth_env('GOOGLE_OAUTH_SUCCESS_URL', oauth_env('GOOGLE_OAUTH_SUCCESS_URI', ''));
+    }
+    if ($successUrl === '') {
+        $successUrl = 'https://scholar-frontend-yqnn.onrender.com';
     }
 
-    return true;
+    return oauth_is_valid_success_url($successUrl) ? $successUrl : '';
+}
+
+function oauth_frontend_url(): string
+{
+    $url = trim((string) oauth_env('GOOGLE_OAUTH_SUCCESS_URL', oauth_env('GOOGLE_OAUTH_SUCCESS_URI', '')));
+    if ($url === '') {
+        $url = 'https://scholar-frontend-yqnn.onrender.com';
+    }
+
+    return oauth_is_valid_success_url($url) ? $url : 'https://scholar-frontend-yqnn.onrender.com';
 }
 
 function oauth_html(string $title, string $message, int $status = 200): void
@@ -167,14 +231,93 @@ function oauth_render_error(string $message, int $status = 400): void
     oauth_html('Google Login Failed', $message, $status);
 }
 
-$expectedState = (string) ($_SESSION['google_oauth_state'] ?? '');
+function oauth_redirect_to_app(string $successUrl, array $params, int $status = 302): bool
+{
+    if (!oauth_is_valid_success_url($successUrl)) {
+        return false;
+    }
+
+    $query = http_build_query($params, '', '&', PHP_QUERY_RFC3986);
+    $separator = str_contains($successUrl, '?') ? '&' : '?';
+    header('Location: ' . $successUrl . $separator . $query, true, $status);
+    exit;
+}
+
+function oauth_has_other_active_admins(mysqli $conn, int $excludeUserId = 0): bool
+{
+    $sql = 'SELECT COUNT(*) AS total FROM users WHERE role = \'admin\' AND is_active = 1';
+    if ($excludeUserId > 0) {
+        $sql .= ' AND user_id <> ?';
+        $stmt = db_prepare($conn, $sql);
+        $stmt->bind_param('i', $excludeUserId);
+    } else {
+        $stmt = db_prepare($conn, $sql);
+    }
+    $stmt->execute();
+    $row = $stmt->get_result()?->fetch_assoc();
+    $stmt->close();
+
+    return (int) ($row['total'] ?? 0) > 0;
+}
+
+function oauth_find_pending_admin_google_request(mysqli $conn, int $userId, string $email, string $googleId): ?array
+{
+    ensure_account_requests_table($conn);
+    $stmt = db_prepare(
+        $conn,
+        "SELECT request_id, status
+         FROM account_requests
+         WHERE request_kind = 'admin_google_access'
+           AND existing_user_id = ?
+           AND email = ?
+           AND google_id = ?
+         ORDER BY request_id DESC
+         LIMIT 1"
+    );
+    $stmt->bind_param('iss', $userId, $email, $googleId);
+    $stmt->execute();
+    $row = $stmt->get_result()?->fetch_assoc();
+    $stmt->close();
+
+    return $row ?: null;
+}
+
+function oauth_create_pending_admin_google_request(
+    mysqli $conn,
+    int $userId,
+    string $username,
+    string $email,
+    string $googleId
+): int {
+    ensure_account_requests_table($conn);
+
+    $existing = oauth_find_pending_admin_google_request($conn, $userId, $email, $googleId);
+    if ($existing && strtolower(trim((string) ($existing['status'] ?? ''))) === 'pending') {
+        return (int) ($existing['request_id'] ?? 0);
+    }
+
+    $stmt = db_prepare(
+        $conn,
+        "INSERT INTO account_requests
+         (request_kind, existing_user_id, role, username, email, password_hash, scholarship_category, scholarship_type_label, first_name, middle_name, last_name, course, year_level, status, google_id)
+         VALUES ('admin_google_access', ?, 'admin', ?, ?, '', '', 'Admin Google Access', '', '', '', '', 1, 'pending', ?)"
+    );
+    $stmt->bind_param('isss', $userId, $username, $email, $googleId);
+    if (!$stmt->execute()) {
+        $error = $stmt->error;
+        $stmt->close();
+        throw new RuntimeException('Failed to create admin access request: ' . $error);
+    }
+
+    $requestId = (int) $stmt->insert_id;
+    $stmt->close();
+    return $requestId;
+}
+
 $incomingState = (string) ($_GET['state'] ?? '');
 $incomingCode = (string) ($_GET['code'] ?? '');
 $incomingError = (string) ($_GET['error'] ?? '');
-$role = strtolower(trim((string) ($_SESSION['google_oauth_role'] ?? ($_GET['role'] ?? 'scholar'))));
-if (!in_array($role, ['admin', 'scholar'], true)) {
-    $role = 'scholar';
-}
+$stateData = oauth_state_decode($incomingState);
 
 if ($incomingError !== '') {
     oauth_render_error('Google returned an error: ' . $incomingError, 400);
@@ -184,16 +327,21 @@ if ($incomingCode === '') {
     oauth_render_error('Missing authorization code from Google.', 400);
 }
 
-if ($expectedState === '' || !hash_equals($expectedState, $incomingState)) {
+if ($stateData === null) {
     oauth_render_error('Invalid OAuth state. Please try again.', 403);
 }
 
+$role = strtolower(trim((string) ($stateData['role'] ?? ($_GET['role'] ?? 'scholar'))));
+if (!in_array($role, ['admin', 'scholar'], true)) {
+    $role = 'scholar';
+}
+
+$successUrl = oauth_success_url_from_state($stateData);
+$frontendUrl = oauth_frontend_url();
+
 $clientId = oauth_env('GOOGLE_CLIENT_ID', oauth_env('GOOGLE_OAUTH_CLIENT_ID'));
 $clientSecret = oauth_env('GOOGLE_CLIENT_SECRET', oauth_env('GOOGLE_OAUTH_CLIENT_SECRET'));
-$redirectUri = oauth_env('GOOGLE_OAUTH_REDIRECT_URI');
-if ($redirectUri === '') {
-    $redirectUri = oauth_current_base_url() . '/google_oauth_callback.php';
-}
+$redirectUri = oauth_redirect_uri();
 
 if ($clientId === '' || $clientSecret === '') {
     oauth_render_error('Missing Google client credentials in the backend environment.', 500);
@@ -239,19 +387,48 @@ if ($email === '') {
     oauth_render_error('Google did not return an email address for this account.', 500);
 }
 
-$userStmt = db_prepare(
-    $conn,
-    'SELECT user_id, username, email, role, is_active FROM users WHERE email = ? LIMIT 1'
-);
-$userStmt->bind_param('s', $email);
-$userStmt->execute();
-$user = $userStmt->get_result()?->fetch_assoc();
-$userStmt->close();
+$googleColumnReady = $googleId !== '' ? oauth_ensure_users_google_id_column($conn) : false;
+$user = null;
+
+if ($googleColumnReady && $googleId !== '') {
+    $userStmt = db_prepare(
+        $conn,
+        'SELECT user_id, username, email, role, is_active, google_id FROM users WHERE google_id = ? LIMIT 1'
+    );
+    $userStmt->bind_param('s', $googleId);
+    $userStmt->execute();
+    $user = $userStmt->get_result()?->fetch_assoc();
+    $userStmt->close();
+}
 
 if (!$user) {
-    oauth_render_error(
-        'No local account exists for ' . $email . '. Please ask an administrator to create or link the account.',
-        404
+    $selectSql = $googleColumnReady
+        ? 'SELECT user_id, username, email, role, is_active, google_id FROM users WHERE email = ? LIMIT 1'
+        : 'SELECT user_id, username, email, role, is_active FROM users WHERE email = ? LIMIT 1';
+    $userStmt = db_prepare($conn, $selectSql);
+    $userStmt->bind_param('s', $email);
+    $userStmt->execute();
+    $user = $userStmt->get_result()?->fetch_assoc();
+    $userStmt->close();
+}
+
+if (!$user) {
+    $pendingParams = [
+        'status' => 'pending_account',
+        'email' => $email,
+        'name' => $name !== '' ? $name : $email,
+        'role' => $role,
+        'google_id' => $googleId,
+    ];
+
+    if (oauth_redirect_to_app($frontendUrl, $pendingParams, 302)) {
+        return;
+    }
+
+    oauth_html(
+        'Google Login Pending',
+        'No local account exists for ' . $email . '. Please return to the app and complete account creation.',
+        200
     );
 }
 
@@ -265,6 +442,63 @@ if ($localRole !== $role) {
         'You signed in as a ' . $role . ' account, but this email is registered as ' . ($localRole !== '' ? $localRole : 'unknown') . '.',
         403
     );
+}
+
+if ($localRole === 'admin' && $googleId !== '') {
+    $storedGoogleId = trim((string) ($user['google_id'] ?? ''));
+    $linkUserId = (int) ($user['user_id'] ?? 0);
+    $isKnownGoogleAdmin = $storedGoogleId !== '' && hash_equals($storedGoogleId, $googleId);
+    $requestedAdminName = trim((string) ($user['username'] ?? ''));
+    if ($requestedAdminName === '') {
+        $requestedAdminName = $name !== '' ? $name : $email;
+    }
+
+    if (!$isKnownGoogleAdmin && oauth_has_other_active_admins($conn, $linkUserId)) {
+        $requestId = oauth_create_pending_admin_google_request($conn, $linkUserId, $requestedAdminName, $email, $googleId);
+        $pendingParams = [
+            'status' => 'pending_admin_access',
+            'role' => 'admin',
+            'email' => $email,
+            'name' => $requestedAdminName,
+            'user_id' => $linkUserId,
+            'request_id' => $requestId,
+            'message' => 'Your Google admin access is waiting for approval from an existing admin.',
+        ];
+
+        if (oauth_redirect_to_app($frontendUrl, $pendingParams, 302)) {
+            return;
+        }
+
+        oauth_html(
+            'Admin Access Pending',
+            'Your Google admin access is waiting for approval from an existing admin. Please try again after they approve the request.',
+            200
+        );
+    }
+
+    if (!$isKnownGoogleAdmin && $googleColumnReady) {
+        $linkStmt = db_prepare(
+            $conn,
+            'UPDATE users SET google_id = ? WHERE user_id = ?'
+        );
+        $linkStmt->bind_param('si', $googleId, $linkUserId);
+        $linkStmt->execute();
+        $linkStmt->close();
+        $user['google_id'] = $googleId;
+    }
+} elseif ($googleColumnReady && $googleId !== '') {
+    $storedGoogleId = trim((string) ($user['google_id'] ?? ''));
+    if ($storedGoogleId === '' || $storedGoogleId !== $googleId) {
+        $linkStmt = db_prepare(
+            $conn,
+            'UPDATE users SET google_id = ? WHERE user_id = ?'
+        );
+        $linkUserId = (int) ($user['user_id'] ?? 0);
+        $linkStmt->bind_param('si', $googleId, $linkUserId);
+        $linkStmt->execute();
+        $linkStmt->close();
+        $user['google_id'] = $googleId;
+    }
 }
 
 $displayName = trim((string) ($user['username'] ?? ''));
@@ -284,7 +518,25 @@ if ($localRole === 'scholar') {
     $profileStmt->close();
 
     if (!$scholar) {
-        oauth_render_error('Scholar profile not found for this account.', 404);
+        $pendingParams = [
+            'status' => 'pending_account',
+            'email' => $email,
+            'name' => $displayName,
+            'role' => $role,
+            'google_id' => $googleId,
+            'user_id' => (int) $user['user_id'],
+            'scholarship_category' => '',
+        ];
+
+        if (oauth_redirect_to_app($frontendUrl, $pendingParams, 302)) {
+            return;
+        }
+
+        oauth_html(
+            'Google Login Pending',
+            'Scholar profile not found for this account. Please return to the app and complete account creation.',
+            200
+        );
     }
 
     $displayName = trim(implode(' ', array_filter([
@@ -304,41 +556,23 @@ if ($localRole === 'scholar') {
     ];
 }
 
-$_SESSION['google_oauth_state'] = '';
-$_SESSION['google_oauth_role'] = '';
-$_SESSION['google_oauth_user'] = [
+$successParams = array_merge([
+    'status' => 'success',
     'user_id' => (int) $user['user_id'],
     'email' => $email,
     'name' => $displayName,
     'role' => $localRole,
-    'google_id' => $googleId,
-    'profile' => $profileData,
-];
+], $extra);
 
-$successUrl = oauth_env('GOOGLE_OAUTH_SUCCESS_URL');
-if ($successUrl === '') {
-    $successUrl = trim((string) ($_SESSION['google_oauth_success_url'] ?? ''));
-}
-if (!oauth_is_valid_success_url($successUrl)) {
-    $successUrl = '';
-}
-if ($successUrl !== '') {
-    $query = http_build_query(array_merge([
-        'status' => 'success',
-        'user_id' => (int) $user['user_id'],
-        'email' => $email,
-        'name' => $displayName,
-        'role' => $localRole,
-    ], $extra), '', '&', PHP_QUERY_RFC3986);
+if (!oauth_redirect_to_app($successUrl, $successParams, 302)) {
+    if ($localRole === 'scholar') {
+        oauth_redirect_to_app($frontendUrl, array_merge($successParams, ['status' => 'success']), 302);
+    }
 
-    $separator = str_contains($successUrl, '?') ? '&' : '?';
-    header('Location: ' . $successUrl . $separator . $query, true, 302);
-    exit;
-}
+    $message = 'Signed in successfully as ' . $displayName . ' (' . $email . ').';
+    if (!empty($extra['scholarship_category'])) {
+        $message .= ' Scholar category: ' . $extra['scholarship_category'] . '.';
+    }
 
-$message = 'Signed in successfully as ' . $displayName . ' (' . $email . ').';
-if (!empty($extra['scholarship_category'])) {
-    $message .= ' Scholar category: ' . $extra['scholarship_category'] . '.';
+    oauth_html('Google Login Successful', $message, 200);
 }
-
-oauth_html('Google Login Successful', $message, 200);

@@ -8,6 +8,7 @@ $data = require_fields(['email', 'password']);
 
 $email = trim((string) $data['email']);
 $password = (string) $data['password'];
+$requestedScholarshipCategory = trim((string) ($data['scholarship_category'] ?? $data['scholarship_type'] ?? ''));
 
 $stmt = db_prepare(
     $conn,
@@ -45,7 +46,7 @@ if (!$isValid) {
 }
 
 $extra = [];
-if (($user['role'] ?? '') === 'scholar' && db_table_exists($conn, 'scholars')) {
+if (($user['role'] ?? '') === 'scholar') {
     $profileStmt = db_prepare(
         $conn,
         'SELECT scholar_id, scholarship_category, academic_type, sport_type, gift_type, first_name, last_name
@@ -57,9 +58,15 @@ if (($user['role'] ?? '') === 'scholar' && db_table_exists($conn, 'scholars')) {
     $profileStmt->close();
 
     if ($profile) {
+        $profileCategory = trim((string) ($profile['scholarship_category'] ?? ''));
+        if ($profileCategory === '' && $requestedScholarshipCategory !== '') {
+            // Return the caller's requested category immediately without turning login into a write request.
+            $profileCategory = $requestedScholarshipCategory;
+        }
+
         $extra = [
             'scholar_id' => (int) ($profile['scholar_id'] ?? 0),
-            'scholarship_category' => $profile['scholarship_category'] ?? '',
+            'scholarship_category' => $profileCategory,
             'academic_type' => $profile['academic_type'] ?? '',
             'sport_type' => $profile['sport_type'] ?? '',
             'gift_type' => $profile['gift_type'] ?? '',

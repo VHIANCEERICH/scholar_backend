@@ -1,12 +1,9 @@
 <?php
 declare(strict_types=1);
 
-if (session_status() === PHP_SESSION_NONE) {
-    session_start();
-}
-
 require_once __DIR__ . '/backend_common.php';
 require_once __DIR__ . '/backend_env.php';
+require_once __DIR__ . '/google_oauth_state.php';
 
 function oauth_env(string $name, string $default = ''): string
 {
@@ -15,12 +12,34 @@ function oauth_env(string $name, string $default = ''): string
 
 function oauth_current_base_url(): string
 {
-    $scheme = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
-    $host = $_SERVER['HTTP_HOST'] ?? 'localhost';
+    $forwardedProto = strtolower(trim((string) ($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '')));
+    if ($forwardedProto !== '') {
+        $forwardedProto = trim((string) explode(',', $forwardedProto)[0]);
+    }
+
+    $scheme = ($forwardedProto === 'https' || (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off'))
+        ? 'https'
+        : 'http';
+
+    $host = (string) ($_SERVER['HTTP_X_FORWARDED_HOST'] ?? $_SERVER['HTTP_HOST'] ?? 'localhost');
+    if (str_contains($host, ',')) {
+        $host = trim((string) explode(',', $host)[0]);
+    }
+
     $scriptDir = str_replace('\\', '/', dirname($_SERVER['SCRIPT_NAME'] ?? ''));
     $scriptDir = rtrim($scriptDir, '/');
 
     return $scheme . '://' . $host . ($scriptDir !== '' ? $scriptDir : '');
+}
+
+function oauth_redirect_uri(): string
+{
+    $configured = trim((string) oauth_env('GOOGLE_OAUTH_REDIRECT_URI', ''));
+    if ($configured !== '') {
+        return $configured;
+    }
+
+    return oauth_current_base_url() . '/google_oauth_callback.php';
 }
 
 function oauth_is_valid_success_url(string $url): bool
@@ -33,11 +52,7 @@ function oauth_is_valid_success_url(string $url): bool
     $scheme = strtolower((string) ($parsed['scheme'] ?? ''));
     $host = strtolower((string) ($parsed['host'] ?? ''));
 
-    if (!in_array($scheme, ['http', 'https'], true) || $host === '') {
-        return false;
-    }
-
-    return true;
+    return in_array($scheme, ['http', 'https'], true) && $host !== '';
 }
 
 function oauth_html(string $title, string $message, int $status = 200): void
@@ -66,43 +81,29 @@ if ($clientId === '') {
     oauth_html('Google Login Not Configured', 'Missing GOOGLE_CLIENT_ID (or GOOGLE_OAUTH_CLIENT_ID) in the backend environment.', 500);
 }
 
-$redirectUri = oauth_env('GOOGLE_OAUTH_REDIRECT_URI');
-if ($redirectUri === '') {
-    $redirectUri = oauth_current_base_url() . '/google_oauth_callback.php';
-}
+$redirectUri = oauth_redirect_uri();
 
-$_SESSION['google_oauth_role'] = $role;
-$_SESSION['google_oauth_state'] = bin2hex(random_bytes(16));
-
-// Allow caller to control where callback redirects after successful login.
 $successUrl = trim((string) ($_GET['success_url'] ?? ''));
-if ($successUrl === '') {
-    $referer = trim((string) ($_SERVER['HTTP_REFERER'] ?? ''));
-    if ($referer !== '') {
-        $parsed = parse_url($referer);
-        if (is_array($parsed)) {
-            $scheme = strtolower((string) ($parsed['scheme'] ?? ''));
-            $host = (string) ($parsed['host'] ?? '');
-            $port = isset($parsed['port']) ? (int) $parsed['port'] : null;
-            if (in_array($scheme, ['http', 'https'], true) && $host !== '') {
-                $successUrl = $scheme . '://' . $host . ($port !== null ? ':' . $port : '');
-            }
-        }
+if (!oauth_is_valid_success_url($successUrl)) {
+    $successUrl = trim((string) oauth_env('GOOGLE_OAUTH_SUCCESS_URL', ''));
+    if (!oauth_is_valid_success_url($successUrl)) {
+        $successUrl = 'https://scholar-frontend-yqnn.onrender.com';
     }
 }
-if (oauth_is_valid_success_url($successUrl)) {
-    $_SESSION['google_oauth_success_url'] = $successUrl;
-}
+
+$state = oauth_state_encode([
+    'role' => $role,
+    'ts' => time(),
+    'nonce' => bin2hex(random_bytes(16)),
+    'success_url' => $successUrl,
+]);
 
 $params = [
     'client_id' => $clientId,
     'redirect_uri' => $redirectUri,
     'response_type' => 'code',
     'scope' => 'openid email profile',
-    'state' => $_SESSION['google_oauth_state'],
-    'access_type' => 'offline',
-    'prompt' => 'select_account consent',
-    'include_granted_scopes' => 'true',
+    'state' => $state,
 ];
 
 $authUrl = 'https://accounts.google.com/o/oauth2/v2/auth?' . http_build_query($params, '', '&', PHP_QUERY_RFC3986);

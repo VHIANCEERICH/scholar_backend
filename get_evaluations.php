@@ -5,31 +5,43 @@ require_once __DIR__ . '/backend_common.php';
 
 function ensure_evaluations_table(mysqli $conn): void
 {
-    if (db_table_exists($conn, 'evaluations')) {
+    if (!db_table_exists($conn, 'evaluations')) {
+        $sql = "
+            CREATE TABLE evaluations (
+                evaluation_id INT AUTO_INCREMENT PRIMARY KEY,
+                scholar_id INT NOT NULL,
+                program_type VARCHAR(30) NOT NULL,
+                supervisor_user_id INT NOT NULL DEFAULT 0,
+                course_year VARCHAR(80) NOT NULL DEFAULT '',
+                assigned_area VARCHAR(150) NOT NULL DEFAULT '',
+                supervisor_name VARCHAR(150) NOT NULL DEFAULT '',
+                month_label VARCHAR(60) NOT NULL DEFAULT '',
+                ratings_json LONGTEXT NOT NULL,
+                total_score INT NOT NULL DEFAULT 0,
+                average_score DECIMAL(6,2) NOT NULL DEFAULT 0.00,
+                recommendation TEXT NOT NULL,
+                created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                INDEX idx_program_created (program_type, created_at),
+                INDEX idx_scholar_created (scholar_id, created_at),
+                INDEX idx_supervisor_created (supervisor_user_id, created_at)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+        ";
+
+        if (!$conn->query($sql)) {
+            respond_error('Failed to create evaluations table: ' . $conn->error, 500);
+        }
         return;
     }
 
-    $sql = "
-        CREATE TABLE evaluations (
-            evaluation_id INT AUTO_INCREMENT PRIMARY KEY,
-            scholar_id INT NOT NULL,
-            program_type VARCHAR(30) NOT NULL,
-            course_year VARCHAR(80) NOT NULL DEFAULT '',
-            assigned_area VARCHAR(150) NOT NULL DEFAULT '',
-            supervisor_name VARCHAR(150) NOT NULL DEFAULT '',
-            month_label VARCHAR(60) NOT NULL DEFAULT '',
-            ratings_json LONGTEXT NOT NULL,
-            total_score INT NOT NULL DEFAULT 0,
-            average_score DECIMAL(6,2) NOT NULL DEFAULT 0.00,
-            recommendation TEXT NOT NULL,
-            created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            INDEX idx_program_created (program_type, created_at),
-            INDEX idx_scholar_created (scholar_id, created_at)
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-    ";
-
-    if (!$conn->query($sql)) {
-        respond_error('Failed to create evaluations table: ' . $conn->error, 500);
+    $result = $conn->query("SHOW COLUMNS FROM evaluations LIKE 'supervisor_user_id'");
+    $hasColumn = $result instanceof mysqli_result && $result->num_rows > 0;
+    if ($result instanceof mysqli_result) {
+        $result->close();
+    }
+    if (!$hasColumn) {
+        if (!$conn->query("ALTER TABLE evaluations ADD COLUMN supervisor_user_id INT NOT NULL DEFAULT 0 AFTER program_type")) {
+            respond_error('Failed to add supervisor_user_id column: ' . $conn->error, 500);
+        }
     }
 }
 
@@ -61,6 +73,7 @@ $sql = "
         e.evaluation_id,
         e.scholar_id,
         e.program_type,
+        e.supervisor_user_id,
         COALESCE(NULLIF(e.course_year, ''), CONCAT_WS(' - ', s.course, s.year_level)) AS course_year,
         e.assigned_area,
         e.supervisor_name,
