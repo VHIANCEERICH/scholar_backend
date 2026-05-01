@@ -154,6 +154,14 @@ function db_table_exists(mysqli $conn, string $table): bool
     return $result instanceof mysqli_result && $result->num_rows > 0;
 }
 
+function db_column_exists(mysqli $conn, string $table, string $column): bool
+{
+    $safeTable = $conn->real_escape_string($table);
+    $safeColumn = $conn->real_escape_string($column);
+    $result = $conn->query("SHOW COLUMNS FROM `{$safeTable}` LIKE '{$safeColumn}'");
+    return $result instanceof mysqli_result && $result->num_rows > 0;
+}
+
 function fetch_all_assoc(mysqli_stmt $stmt): array
 {
     $result = $stmt->get_result();
