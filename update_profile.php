@@ -30,7 +30,6 @@ $grantCoverage = trim((string) ($data['grant_coverage'] ?? ''));
 $retentionGwa = trim((string) ($data['retention_gwa'] ?? ($data['gpa'] ?? '')));
 $scholarshipStatusRaw = trim((string) ($data['scholarship_status'] ?? ''));
 
-$allowedAcademicTypes = ['A', 'B', 'C'];
 $allowedGiftTypes = ['ip_member', 'pwd'];
 $allowedStatuses = [
     'active',
@@ -46,10 +45,7 @@ if ($userId <= 0 || $yearLevel <= 0) {
 }
 
 if ($academicType !== '') {
-    $academicType = strtoupper($academicType);
-    if (!in_array($academicType, $allowedAcademicTypes, true)) {
-        respond_error('Invalid academic type', 422);
-    }
+    $academicType = normalize_academic_type_for_storage($conn, $academicType);
 }
 
 if ($giftType !== '') {

@@ -13,17 +13,12 @@ $academicGwaRequirement = trim((string) ($data['academic_gwa_requirement'] ?? ''
 $monthlyStipendRaw = trim((string) ($data['monthly_stipend'] ?? ''));
 $monthlyStipend = $monthlyStipendRaw !== '' ? (float) $monthlyStipendRaw : 3000.0;
 
-$allowedAcademicTypes = ['A', 'B', 'C'];
-
 if ($userId <= 0) {
     respond_error('Invalid user_id', 422);
 }
 
 if ($academicType !== '') {
-    $academicType = strtoupper($academicType);
-    if (!in_array($academicType, $allowedAcademicTypes, true)) {
-        respond_error('Invalid academic type', 422);
-    }
+    $academicType = normalize_academic_type_for_storage($conn, $academicType);
 }
 
 $stmt = db_prepare(

@@ -162,6 +162,53 @@ function db_column_exists(mysqli $conn, string $table, string $column): bool
     return $result instanceof mysqli_result && $result->num_rows > 0;
 }
 
+function db_column_definition(mysqli $conn, string $table, string $column): ?array
+{
+    $safeTable = $conn->real_escape_string($table);
+    $safeColumn = $conn->real_escape_string($column);
+    $result = $conn->query("SHOW COLUMNS FROM `{$safeTable}` LIKE '{$safeColumn}'");
+    if (!$result instanceof mysqli_result) {
+        return null;
+    }
+
+    $row = $result->fetch_assoc();
+    return is_array($row) ? $row : null;
+}
+
+function normalize_academic_type_for_storage(mysqli $conn, string $raw): string
+{
+    $value = strtoupper(trim($raw));
+    if ($value === '') {
+        return '';
+    }
+
+    $normalized = match ($value) {
+        'A', 'TYPE A' => 'A',
+        'B', 'TYPE B' => 'B',
+        'C', 'TYPE C' => 'C',
+        default => '',
+    };
+
+    if ($normalized === '') {
+        respond_error('Invalid academic type', 422, [
+            'allowed' => ['A', 'B', 'C', 'Type A', 'Type B', 'Type C'],
+        ]);
+    }
+
+    $column = db_column_definition($conn, 'scholars', 'academic_type');
+    $columnType = strtolower((string) ($column['Type'] ?? ''));
+    if (str_starts_with($columnType, 'enum(')) {
+        if (str_contains($columnType, "'type a'")) {
+            return 'Type ' . $normalized;
+        }
+        if (str_contains($columnType, "'a'")) {
+            return $normalized;
+        }
+    }
+
+    return $normalized;
+}
+
 function fetch_all_assoc(mysqli_stmt $stmt): array
 {
     $result = $stmt->get_result();
