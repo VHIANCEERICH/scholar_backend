@@ -21,25 +21,51 @@ if ($academicType !== '') {
     $academicType = normalize_academic_type_for_storage($conn, $academicType);
 }
 
-$stmt = db_prepare(
-    $conn,
-    'UPDATE scholars
+$sql = 'UPDATE scholars
      SET academic_type = ?,
          academic_benefit = ?,
          academic_gwa_requirement = ?,
          monthly_stipend = ?
-     WHERE user_id = ?'
-);
+     WHERE user_id = ?';
 
-$stmt->bind_param('sssdi', $academicType, $academicBenefit, $academicGwaRequirement, $monthlyStipend, $userId);
-
-if (!$stmt->execute()) {
-    $error = $stmt->error;
+$runUpdate = static function (string $typeValue) use (
+    $conn,
+    $sql,
+    $academicBenefit,
+    $academicGwaRequirement,
+    $monthlyStipend,
+    $userId
+): array {
+    $stmt = db_prepare($conn, $sql);
+    $stmt->bind_param('sssdi', $typeValue, $academicBenefit, $academicGwaRequirement, $monthlyStipend, $userId);
+    $ok = $stmt->execute();
+    $result = [
+        'ok' => $ok,
+        'error' => $stmt->error,
+    ];
     $stmt->close();
-    respond_error('Failed to update academic details: ' . $error, 500);
+    return $result;
+};
+
+$result = $runUpdate($academicType);
+
+if (
+    !$result['ok']
+    && $academicType !== ''
+    && str_contains(strtolower((string) $result['error']), 'academic_type')
+    && str_contains(strtolower((string) $result['error']), 'data truncated')
+) {
+    $alternateAcademicType = alternate_academic_type_storage($academicType);
+    if ($alternateAcademicType !== $academicType) {
+        $academicType = $alternateAcademicType;
+        $result = $runUpdate($academicType);
+    }
 }
 
-$stmt->close();
+if (!$result['ok']) {
+    respond_error('Failed to update academic details: ' . $result['error'], 500);
+}
+
 respond_success([
     'message' => 'Academic details updated successfully',
     'user_id' => $userId,

@@ -209,6 +209,20 @@ function normalize_academic_type_for_storage(mysqli $conn, string $raw): string
     return $normalized;
 }
 
+function alternate_academic_type_storage(string $raw): string
+{
+    $value = strtoupper(trim($raw));
+    return match ($value) {
+        'A' => 'Type A',
+        'B' => 'Type B',
+        'C' => 'Type C',
+        'TYPE A' => 'A',
+        'TYPE B' => 'B',
+        'TYPE C' => 'C',
+        default => trim($raw),
+    };
+}
+
 function fetch_all_assoc(mysqli_stmt $stmt): array
 {
     $result = $stmt->get_result();

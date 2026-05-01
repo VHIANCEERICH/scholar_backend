@@ -4,17 +4,24 @@ declare(strict_types=1);
 require_once __DIR__ . '/backend_common.php';
 
 require_method('POST');
-$data = require_fields(['email', 'password']);
+$data = request_data();
+$loginId = trim((string) ($data['email'] ?? $data['username'] ?? $data['login'] ?? ''));
+$password = (string) ($data['password'] ?? '');
 
-$email = trim((string) $data['email']);
-$password = (string) $data['password'];
+if ($loginId === '' || trim($password) === '') {
+    respond_error('Missing required fields', 422, ['fields' => ['email', 'password']]);
+}
+
 $requestedScholarshipCategory = trim((string) ($data['scholarship_category'] ?? $data['scholarship_type'] ?? ''));
 
 $stmt = db_prepare(
     $conn,
-    'SELECT user_id, username, email, password_hash, password, role, is_active FROM users WHERE email = ? LIMIT 1'
+    'SELECT user_id, username, email, password_hash, password, role, is_active
+     FROM users
+     WHERE email = ? OR username = ?
+     LIMIT 1'
 );
-$stmt->bind_param('s', $email);
+$stmt->bind_param('ss', $loginId, $loginId);
 $stmt->execute();
 $user = $stmt->get_result()?->fetch_assoc();
 $stmt->close();

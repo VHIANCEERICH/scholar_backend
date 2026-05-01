@@ -4,14 +4,55 @@ declare(strict_types=1);
 require_once __DIR__ . '/backend_common.php';
 
 require_method('POST');
-$data = require_fields(['user_id', 'first_name', 'last_name', 'course', 'year_level']);
+$data = require_fields(['user_id']);
 
 $userId = (int) ($data['user_id'] ?? 0);
+if ($userId <= 0) {
+    respond_error('Invalid user_id', 422);
+}
+
+$currentStmt = db_prepare(
+    $conn,
+    'SELECT first_name, middle_name, last_name, course, year_level
+     FROM scholars
+     WHERE user_id = ?
+     LIMIT 1'
+);
+$currentStmt->bind_param('i', $userId);
+$currentStmt->execute();
+$current = $currentStmt->get_result()?->fetch_assoc();
+$currentStmt->close();
+
+if (!$current) {
+    respond_error('Scholar profile not found for this user_id', 404, [
+        'user_id' => $userId,
+    ]);
+}
+
 $firstName = trim((string) ($data['first_name'] ?? ''));
+if ($firstName === '') {
+    $firstName = trim((string) ($current['first_name'] ?? ''));
+}
+
 $middleName = trim((string) ($data['middle_name'] ?? ''));
+if (!array_key_exists('middle_name', $data)) {
+    $middleName = trim((string) ($current['middle_name'] ?? ''));
+}
+
 $lastName = trim((string) ($data['last_name'] ?? ''));
+if ($lastName === '') {
+    $lastName = trim((string) ($current['last_name'] ?? ''));
+}
+
 $course = trim((string) ($data['course'] ?? ''));
-$yearLevel = (int) ($data['year_level'] ?? 0);
+if ($course === '') {
+    $course = trim((string) ($current['course'] ?? ''));
+}
+
+$yearLevelRaw = trim((string) ($data['year_level'] ?? ''));
+$yearLevel = $yearLevelRaw !== ''
+    ? (int) $yearLevelRaw
+    : (int) ($current['year_level'] ?? 0);
 
 $assignedArea = trim((string) ($data['assigned_area'] ?? ''));
 $academicType = trim((string) ($data['academic_type'] ?? ''));
@@ -40,8 +81,8 @@ $allowedStatuses = [
     'pending',
 ];
 
-if ($userId <= 0 || $yearLevel <= 0) {
-    respond_error('Invalid user_id or year_level', 422);
+if ($yearLevel <= 0) {
+    respond_error('Invalid year_level', 422);
 }
 
 if ($academicType !== '') {
@@ -131,19 +172,49 @@ $types = implode('', array_column($assignments, 1)) . 'i';
 $values = array_map(static fn (array $item) => $item[2], $assignments);
 $values[] = $userId;
 
-$stmt = db_prepare($conn, $sql);
-$stmt->bind_param($types, ...$values);
-
-if (!$stmt->execute()) {
-    $error = $stmt->error;
+$runUpdate = static function (array $statementValues) use ($conn, $sql, $types): array {
+    $stmt = db_prepare($conn, $sql);
+    $stmt->bind_param($types, ...$statementValues);
+    $ok = $stmt->execute();
+    $result = [
+        'ok' => $ok,
+        'error' => $stmt->error,
+        'affected_rows' => $stmt->affected_rows,
+    ];
     $stmt->close();
-    respond_error('Failed to update profile: ' . $error, 500, [
+    return $result;
+};
+
+$result = $runUpdate($values);
+
+if (
+    !$result['ok']
+    && $academicType !== ''
+    && array_key_exists('academic_type', $data)
+    && str_contains(strtolower((string) $result['error']), 'academic_type')
+    && str_contains(strtolower((string) $result['error']), 'data truncated')
+) {
+    $alternateAcademicType = alternate_academic_type_storage($academicType);
+    if ($alternateAcademicType !== $academicType) {
+        foreach ($assignments as $index => $assignment) {
+            if ($assignment[0] === 'academic_type = ?') {
+                $assignments[$index][2] = $alternateAcademicType;
+                break;
+            }
+        }
+        $values = array_map(static fn (array $item) => $item[2], $assignments);
+        $values[] = $userId;
+        $result = $runUpdate($values);
+    }
+}
+
+if (!$result['ok']) {
+    respond_error('Failed to update profile: ' . $result['error'], 500, [
         'sql' => $sql,
     ]);
 }
 
-$affectedRows = $stmt->affected_rows;
-$stmt->close();
+$affectedRows = (int) $result['affected_rows'];
 
 if ($affectedRows === 0) {
     $checkStmt = db_prepare($conn, 'SELECT scholar_id FROM scholars WHERE user_id = ? LIMIT 1');
