@@ -39,61 +39,58 @@ if ($message === '') {
     respond_error('Announcement message is required', 422);
 }
 
-if ($targetUserId > 0) {
-    $recipientStmt = db_prepare(
-        $conn,
-        "SELECT user_id FROM users WHERE user_id = ? AND role = 'scholar' AND is_active = 1"
-    );
-    $recipientStmt->bind_param('i', $targetUserId);
-    $recipientStmt->execute();
-    $recipientResult = $recipientStmt->get_result();
-} else {
-    $categoryFilter = '';
+function resolve_announcement_category_aliases(string $target): array
+{
     $targetLower = strtolower($target);
     if (str_contains($targetLower, 'student assistant')) {
-        $categoryFilter = 'student_assistant';
-    } elseif (str_contains($targetLower, 'academic')) {
-        $categoryFilter = 'academic';
-    } elseif (str_contains($targetLower, 'varsity')) {
-        $categoryFilter = 'varsity';
-    } elseif (str_contains($targetLower, 'gift')) {
-        $categoryFilter = 'gift_of_education';
+        return ['student_assistant', 'student assistant'];
+    }
+    if (str_contains($targetLower, 'academic')) {
+        return ['academic', 'academic_scholar'];
+    }
+    if (str_contains($targetLower, 'varsity')) {
+        return ['varsity', 'varsity_scholar'];
+    }
+    if (str_contains($targetLower, 'gift')) {
+        return ['gift_of_education'];
     }
 
-    if ($categoryFilter !== '') {
-        $categoryAliases = [$categoryFilter];
-        if ($categoryFilter === 'academic') {
-            $categoryAliases[] = 'academic_scholar';
-        } elseif ($categoryFilter === 'varsity') {
-            $categoryAliases[] = 'varsity_scholar';
-        } elseif ($categoryFilter === 'student_assistant') {
-            $categoryAliases[] = 'student assistant';
-        }
-
-        $placeholders = implode(',', array_fill(0, count($categoryAliases), '?'));
-        $types = str_repeat('s', count($categoryAliases));
-        $recipientStmt = db_prepare(
-            $conn,
-            "SELECT u.user_id
-             FROM users u
-             INNER JOIN scholars s ON s.user_id = u.user_id
-             WHERE u.role = 'scholar'
-               AND u.is_active = 1
-               AND LOWER(TRIM(COALESCE(s.scholarship_category, ''))) IN ($placeholders)"
-        );
-        $recipientStmt->bind_param($types, ...$categoryAliases);
-        $recipientStmt->execute();
-        $recipientResult = $recipientStmt->get_result();
-    } else {
-        $recipientResult = $conn->query("SELECT user_id FROM users WHERE role = 'scholar' AND is_active = 1");
-    }
+    return [];
 }
 
-if (!$recipientResult) {
-    respond_error('Failed to load recipients: ' . $conn->error, 500);
+$categoryAliases = $targetUserId > 0 ? [] : resolve_announcement_category_aliases($target);
+
+if ($targetUserId > 0) {
+    $countStmt = db_prepare(
+        $conn,
+        "SELECT COUNT(*) AS total FROM users WHERE user_id = ? AND role = 'scholar' AND is_active = 1"
+    );
+    $countStmt->bind_param('i', $targetUserId);
+} elseif ($categoryAliases !== []) {
+    $placeholders = implode(',', array_fill(0, count($categoryAliases), '?'));
+    $types = str_repeat('s', count($categoryAliases));
+    $countStmt = db_prepare(
+        $conn,
+        "SELECT COUNT(*) AS total
+         FROM users u
+         INNER JOIN scholars s ON s.user_id = u.user_id
+         WHERE u.role = 'scholar'
+           AND u.is_active = 1
+           AND LOWER(TRIM(COALESCE(s.scholarship_category, ''))) IN ($placeholders)"
+    );
+    $countStmt->bind_param($types, ...$categoryAliases);
+} else {
+    $countStmt = db_prepare(
+        $conn,
+        "SELECT COUNT(*) AS total FROM users WHERE role = 'scholar' AND is_active = 1"
+    );
 }
 
-if ($recipientResult->num_rows === 0) {
+$countStmt->execute();
+$recipientCount = (int) (($countStmt->get_result()?->fetch_assoc()['total'] ?? 0));
+$countStmt->close();
+
+if ($recipientCount === 0) {
     respond_error('No scholar users found', 404);
 }
 
@@ -114,22 +111,48 @@ try {
     $announcementBody = "ANNOUNCEMENT_ID:" . $announcementId . "\n";
     $announcementBody .= $title !== '' ? ($title . "\n" . $message) : $message;
 
-    $notificationStmt = db_prepare($conn, 'INSERT INTO notifications (user_id, message) VALUES (?, ?)');
-    $inserted = 0;
-
-    while ($recipient = $recipientResult->fetch_assoc()) {
-        $userId = (int) $recipient['user_id'];
-        $notificationStmt->bind_param('is', $userId, $announcementBody);
-        if (!$notificationStmt->execute()) {
-            throw new RuntimeException('Failed to send notification: ' . $notificationStmt->error);
-        }
-        $inserted++;
+    if ($targetUserId > 0) {
+        $notificationStmt = db_prepare(
+            $conn,
+            "INSERT INTO notifications (user_id, message)
+             SELECT user_id, ?
+             FROM users
+             WHERE user_id = ?
+               AND role = 'scholar'
+               AND is_active = 1"
+        );
+        $notificationStmt->bind_param('si', $announcementBody, $targetUserId);
+    } elseif ($categoryAliases !== []) {
+        $placeholders = implode(',', array_fill(0, count($categoryAliases), '?'));
+        $types = 's' . str_repeat('s', count($categoryAliases));
+        $notificationStmt = db_prepare(
+            $conn,
+            "INSERT INTO notifications (user_id, message)
+             SELECT u.user_id, ?
+             FROM users u
+             INNER JOIN scholars s ON s.user_id = u.user_id
+             WHERE u.role = 'scholar'
+               AND u.is_active = 1
+               AND LOWER(TRIM(COALESCE(s.scholarship_category, ''))) IN ($placeholders)"
+        );
+        $notificationStmt->bind_param($types, $announcementBody, ...$categoryAliases);
+    } else {
+        $notificationStmt = db_prepare(
+            $conn,
+            "INSERT INTO notifications (user_id, message)
+             SELECT user_id, ?
+             FROM users
+             WHERE role = 'scholar'
+               AND is_active = 1"
+        );
+        $notificationStmt->bind_param('s', $announcementBody);
     }
 
+    if (!$notificationStmt->execute()) {
+        throw new RuntimeException('Failed to send notification: ' . $notificationStmt->error);
+    }
+    $inserted = $notificationStmt->affected_rows;
     $notificationStmt->close();
-    if (isset($recipientStmt)) {
-        $recipientStmt->close();
-    }
 
     $conn->commit();
 
