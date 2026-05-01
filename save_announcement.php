@@ -60,40 +60,6 @@ function resolve_announcement_category_aliases(string $target): array
 
 $categoryAliases = $targetUserId > 0 ? [] : resolve_announcement_category_aliases($target);
 
-if ($targetUserId > 0) {
-    $countStmt = db_prepare(
-        $conn,
-        "SELECT COUNT(*) AS total FROM users WHERE user_id = ? AND role = 'scholar' AND is_active = 1"
-    );
-    $countStmt->bind_param('i', $targetUserId);
-} elseif ($categoryAliases !== []) {
-    $placeholders = implode(',', array_fill(0, count($categoryAliases), '?'));
-    $types = str_repeat('s', count($categoryAliases));
-    $countStmt = db_prepare(
-        $conn,
-        "SELECT COUNT(*) AS total
-         FROM users u
-         INNER JOIN scholars s ON s.user_id = u.user_id
-         WHERE u.role = 'scholar'
-           AND u.is_active = 1
-           AND LOWER(TRIM(COALESCE(s.scholarship_category, ''))) IN ($placeholders)"
-    );
-    $countStmt->bind_param($types, ...$categoryAliases);
-} else {
-    $countStmt = db_prepare(
-        $conn,
-        "SELECT COUNT(*) AS total FROM users WHERE role = 'scholar' AND is_active = 1"
-    );
-}
-
-$countStmt->execute();
-$recipientCount = (int) (($countStmt->get_result()?->fetch_assoc()['total'] ?? 0));
-$countStmt->close();
-
-if ($recipientCount === 0) {
-    respond_error('No scholar users found', 404);
-}
-
 $conn->begin_transaction();
 
 try {
@@ -153,6 +119,10 @@ try {
     }
     $inserted = $notificationStmt->affected_rows;
     $notificationStmt->close();
+
+    if ($inserted === 0) {
+        throw new RuntimeException('No scholar users found');
+    }
 
     $conn->commit();
 
